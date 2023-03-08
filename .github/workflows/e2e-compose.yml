@@ -104,6 +104,7 @@ jobs:
         run: |    
           sed -i 's/turn-on-push-model = false/turn-on-push-model = true/' ./etc/launch-tae-compose/config/cn-0.toml
           sed -i 's/turn-on-push-model = false/turn-on-push-model = true/' ./etc/launch-tae-compose/config/cn-1.toml
+          sed -i 's/logtail-collect-interval = "2ms"/logtail-collect-interval = "20ms"/' ./etc/launch-tae-compose/config/dn.toml
           cat ./etc/launch-tae-compose/config/cn-0.toml
           cat ./etc/launch-tae-compose/config/cn-1.toml
           docker-compose -f etc/launch-tae-compose/compose.yaml --profile launch-tae-multi-CN-tae-DN up -d --build
