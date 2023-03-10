@@ -43,7 +43,7 @@ func consumeEntry(
 		switch e.TableId {
 		case catalog.MO_TABLES_ID:
 			bat, _ := batch.ProtoBatchToBatch(e.Bat)
-			engine.catalog.InsertTable(bat)
+			engine.catalog.InsertTable(bat, engine.OkResponseNum[4])
 
 			engine.cmsLock.Lock()
 			engine.tableEntry++
@@ -55,11 +55,11 @@ func consumeEntry(
 			engine.catalog.InsertDatabase(bat)
 		case catalog.MO_COLUMNS_ID:
 			bat, _ := batch.ProtoBatchToBatch(e.Bat)
-			engine.catalog.InsertColumns(bat)
+			engine.catalog.InsertColumns(bat, engine.OkResponseNum[4])
 
 			engine.cmsLock.Lock()
 			engine.columnEntry++
-			logutil.Infof("cms that2, receive mo_column entry sum is %d\n", engine.tableEntry)
+			logutil.Infof("cms that2, receive mo_column entry sum is %d\n", engine.columnEntry)
 			engine.cmsLock.Unlock()
 		}
 		return nil

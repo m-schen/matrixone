@@ -483,8 +483,10 @@ func distributeUpdateResponse(
 	}
 	// should update all the timestamp.
 	e.receiveLogTailTime.updateTimestamp(parallelNums, *response.To)
+	e.OkResponseNum[parallelNums]++
 	for _, rc := range recRoutines {
 		rc.updateTimeFromT(*response.To)
+		rc.sendUpdateOK()
 	}
 	return nil
 }
@@ -494,6 +496,10 @@ type routineController struct {
 	routineId  int
 	closeChan  chan bool
 	signalChan chan routineControlCmd
+}
+
+func (rc *routineController) sendUpdateOK() {
+	rc.signalChan <- cmdToUpdateOK{}
 }
 
 func (rc *routineController) sendSubscribeResponse(r *logtail.SubscribeResponse) {
@@ -549,6 +555,12 @@ type routineControlCmd interface {
 type cmdToConsumeSub struct{ log *logtail.SubscribeResponse }
 type cmdToConsumeLog struct{ log logtail.TableLogtail }
 type cmdToUpdateTime struct{ time timestamp.Timestamp }
+type cmdToUpdateOK struct{}
+
+func (cmd cmdToUpdateOK) action(e *Engine, ctrl *routineController) error {
+	e.OkResponseNum[ctrl.routineId]++
+	return nil
+}
 
 func (cmd cmdToConsumeSub) action(e *Engine, ctrl *routineController) error {
 	response := cmd.log

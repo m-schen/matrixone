@@ -40,8 +40,8 @@ func TestGC(t *testing.T) {
 	// insert tables
 	tblBat := newTestTableBatch(mp)
 	colBat := newTestColumnBatch(t, tblBat, mp)
-	cc.InsertTable(tblBat)
-	cc.InsertColumns(colBat)
+	cc.InsertTable(tblBat, 0)
+	cc.InsertColumns(colBat, 0)
 	cc.GC(timestamp.Timestamp{
 		PhysicalTime: 100,
 	})
@@ -96,7 +96,7 @@ func TestTables(t *testing.T) {
 			databaseIds[i] = 12
 		}
 	}
-	cc.InsertTable(bat)
+	cc.InsertTable(bat, 0)
 	tblList, tblIdList := cc.Tables(1, 12, timestamp.Timestamp{
 		PhysicalTime: 100,
 	})
@@ -193,8 +193,8 @@ func TestTableInsert(t *testing.T) {
 	cc := NewCatalog()
 	bat := newTestTableBatch(mp)
 	colBat := newTestColumnBatch(t, bat, mp)
-	cc.InsertTable(bat)
-	cc.InsertColumns(colBat)
+	cc.InsertTable(bat, 0)
+	cc.InsertColumns(colBat, 0)
 	timestamps := vector.MustTCols[types.TS](bat.GetVector(MO_TIMESTAMP_IDX))
 	accounts := vector.MustTCols[uint32](bat.GetVector(catalog.MO_TABLES_ACCOUNT_ID_IDX + MO_OFF))
 	names := vector.MustStrCols(bat.GetVector(catalog.MO_TABLES_REL_NAME_IDX + MO_OFF))
