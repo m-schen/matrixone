@@ -126,7 +126,7 @@ func (db *txnDatabase) Relation(ctx context.Context, name string) (engine.Relati
 
 	// XXX Debug Info XXX
 	if item.TableDef == nil {
-		logutil.Errorf("disttae: get table %s[id: %d]'s table def failed\n", item.Name, item.Id)
+		logutil.Errorf("cms that: get table %s[id: %d]'s table def failed\n", item.Name, item.Id)
 	}
 
 	columnLength := len(item.TableDef.Cols) - 1 // we use this data to fetch zonemap, but row_id has no zonemap

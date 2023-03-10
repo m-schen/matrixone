@@ -16,6 +16,7 @@ package disttae
 
 import (
 	"context"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"math/rand"
 	"strings"
 
@@ -229,7 +230,10 @@ func (tbl *txnTable) Ranges(ctx context.Context, expr *plan.Expr) ([][]byte, err
 					id, offset := catalog.DecodeRowid(entry.RowID)
 					deletes[id] = append(deletes[id], int(offset))
 				}
-				iter.Close()
+				err = iter.Close()
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			for _, entry := range writes {
@@ -256,6 +260,10 @@ func (tbl *txnTable) Ranges(ctx context.Context, expr *plan.Expr) ([][]byte, err
 		}
 		tbl.meta.modifedBlocks[i] = genModifedBlocks(ctx, deletes,
 			tbl.meta.blocks[i], blks, expr, tbl.getTableDef(), tbl.db.txn.proc)
+	}
+	if len(ranges) == 0 {
+		logutil.Errorf("cms that: get nil ranges of table %s, table subscribe status is %b\n", tbl.tableName,
+			tbl.db.txn.engine.subscribed.getTableSubscribe(tbl.db.databaseId, tbl.tableId))
 	}
 	return ranges, nil
 }
