@@ -15,6 +15,7 @@
 package cache
 
 import (
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"sort"
 
 	"github.com/matrixorigin/matrixone/pkg/catalog"
@@ -271,6 +272,9 @@ func (cc *CatalogCache) InsertTable(bat *batch.Batch) {
 		item.PrimaryIdx = -1
 		item.ClusterByIdx = -1
 		copy(item.Rowid[:], rowids[i][:])
+
+		logutil.Infof("cms that3, insert mo_table name:{%s}, id:[%d]\n", item.Name, item.Id)
+
 		cc.tables.data.Set(item)
 		cc.tables.rowidIndex.Set(item)
 	}
@@ -328,6 +332,9 @@ func (cc *CatalogCache) InsertColumns(bat *batch.Batch) {
 			mp[tblKey] = append(mp[tblKey], col)
 		}
 	}
+
+	var Name string
+	var Id uint64
 	for k, cols := range mp {
 		sort.Sort(cols)
 		key.Name = k.Name
@@ -350,9 +357,14 @@ func (cc *CatalogCache) InsertColumns(bat *batch.Batch) {
 			}
 			defs = append(defs, genTableDefOfColumn(col))
 		}
+
+		Name = item.Name
+		Id = item.Id
+
 		item.Defs = defs
 		item.TableDef = getTableDef(item.Name, defs)
 	}
+	logutil.Infof("cms that3, insert mo_column name:{%s}, id:[%d]\n", Name, Id)
 }
 
 func (cc *CatalogCache) InsertDatabase(bat *batch.Batch) {

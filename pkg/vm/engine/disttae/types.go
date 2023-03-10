@@ -76,6 +76,10 @@ type Engine struct {
 	subscriber         *logTailSubscriber
 	receiveLogTailTime syncLogTailTimestamp
 	subscribed         subscribedTable
+
+	cmsLock     sync.RWMutex
+	tableEntry  int64
+	columnEntry int64
 }
 
 type Partitions []*Partition
