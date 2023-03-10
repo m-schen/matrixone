@@ -30,33 +30,33 @@ services:
     networks:
       monet:
 
-  cn-1:
-    container_name: cn-1
-    build:
-      context: ../../
-      dockerfile: ./optools/images/Dockerfile
-      args:
-        GOPROXY: "https://proxy.golang.org,direct"
-    image: matrixorigin/matrixone:nightly-a464424e
-    entrypoint: ["/mo-service", "-cfg", "/config/cn-1.toml"]
-    depends_on:
-      - dn
-    ports:
-      - "7001:6001"
-      - "6002"
-    restart: on-failure
-    profiles:
-      - launch-tae-multi-CN-tae-DN
-    volumes:
-      - ../../etc/launch-tae-compose/config:/config
-      - ../../test:/test
-    environment:
-      - AWS_ACCESS_KEY_ID=minio
-      - AWS_SECRET_ACCESS_KEY=minio123
-        # - AWS_REGION=${AWS_REGION}
-    tty: true
-    networks:
-      monet:
+#  cn-1:
+#    container_name: cn-1
+#    build:
+#      context: ../../
+#      dockerfile: ./optools/images/Dockerfile
+#      args:
+#        GOPROXY: "https://proxy.golang.org,direct"
+#    image: matrixorigin/matrixone:nightly-a464424e
+#    entrypoint: ["/mo-service", "-cfg", "/config/cn-1.toml"]
+#    depends_on:
+#      - dn
+#    ports:
+#      - "7001:6001"
+#      - "6002"
+#    restart: on-failure
+#    profiles:
+#      - launch-tae-multi-CN-tae-DN
+#    volumes:
+#      - ../../etc/launch-tae-compose/config:/config
+#      - ../../test:/test
+#    environment:
+#      - AWS_ACCESS_KEY_ID=minio
+#      - AWS_SECRET_ACCESS_KEY=minio123
+#        # - AWS_REGION=${AWS_REGION}
+#    tty: true
+#    networks:
+#      monet:
 
   dn:
     container_name: dn
