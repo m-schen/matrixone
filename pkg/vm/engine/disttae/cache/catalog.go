@@ -273,8 +273,8 @@ func (cc *CatalogCache) InsertTable(bat *batch.Batch, fromTime timestamp.Timesta
 		item.ClusterByIdx = -1
 		copy(item.Rowid[:], rowids[i][:])
 
-		logutil.Infof("cms that3, insert mo_table name:{%s}, id:[%d], group:<%s, %s>\n",
-			item.Name, item.Id, fromTime, toTime)
+		logutil.Infof("cms that3, insert mo_table name:{%s}, id:[%d], t: #%s#, group:<%s, %s>\n",
+			item.Name, item.Id, item.Ts, fromTime, toTime)
 
 		cc.tables.data.Set(item)
 		cc.tables.rowidIndex.Set(item)
