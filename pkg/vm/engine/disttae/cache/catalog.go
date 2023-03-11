@@ -242,7 +242,7 @@ func (cc *CatalogCache) DeleteDatabase(bat *batch.Batch) {
 	}
 }
 
-func (cc *CatalogCache) InsertTable(bat *batch.Batch, OKr int) {
+func (cc *CatalogCache) InsertTable(bat *batch.Batch, fromTime timestamp.Timestamp, toTime timestamp.Timestamp) {
 	rowids := vector.MustTCols[types.Rowid](bat.GetVector(MO_ROWID_IDX))
 	timestamps := vector.MustTCols[types.TS](bat.GetVector(MO_TIMESTAMP_IDX))
 	accounts := vector.MustTCols[uint32](bat.GetVector(catalog.MO_TABLES_ACCOUNT_ID_IDX + MO_OFF))
@@ -273,15 +273,15 @@ func (cc *CatalogCache) InsertTable(bat *batch.Batch, OKr int) {
 		item.ClusterByIdx = -1
 		copy(item.Rowid[:], rowids[i][:])
 
-		logutil.Infof("cms that3, insert mo_table name:{%s}, id:[%d], group:<%d>\n",
-			item.Name, item.Id, OKr)
+		logutil.Infof("cms that3, insert mo_table name:{%s}, id:[%d], group:<%s, %s>\n",
+			item.Name, item.Id, fromTime, toTime)
 
 		cc.tables.data.Set(item)
 		cc.tables.rowidIndex.Set(item)
 	}
 }
 
-func (cc *CatalogCache) InsertColumns(bat *batch.Batch, OKr int) {
+func (cc *CatalogCache) InsertColumns(bat *batch.Batch, fromTime timestamp.Timestamp, toTime timestamp.Timestamp) {
 	var tblKey tableItemKey
 
 	mp := make(map[tableItemKey]columns) // TableItem -> columns
@@ -361,8 +361,8 @@ func (cc *CatalogCache) InsertColumns(bat *batch.Batch, OKr int) {
 
 		Name = item.Name
 		Id = item.Id
-		logutil.Infof("cms that3, insert mo_column name:{%s}, id:[%d], group:<%d>\n",
-			Name, Id, OKr)
+		logutil.Infof("cms that3, insert mo_column name:{%s}, id:[%d], group:<%s, %s>\n",
+			Name, Id, fromTime, toTime)
 
 		item.Defs = defs
 		item.TableDef = getTableDef(item.Name, defs)

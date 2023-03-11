@@ -466,6 +466,8 @@ func distributeUpdateResponse(
 
 	// after sort, the smaller tblId, the smaller the index.
 	var index int
+	e.nowFrom[parallelNums] = e.nowTo[parallelNums]
+	e.nowTo[parallelNums] = *response.To
 	for index = 0; index < len(list); index++ {
 		table := list[index].Table
 		notDistribute := ifShouldNotDistribute(table.DbId, table.TbId)
@@ -483,7 +485,6 @@ func distributeUpdateResponse(
 	}
 	// should update all the timestamp.
 	e.receiveLogTailTime.updateTimestamp(parallelNums, *response.To)
-	e.OkResponseNum[parallelNums]++
 	for _, rc := range recRoutines {
 		rc.updateTimeFromT(*response.To)
 		rc.sendUpdateOK()
@@ -558,7 +559,6 @@ type cmdToUpdateTime struct{ time timestamp.Timestamp }
 type cmdToUpdateOK struct{}
 
 func (cmd cmdToUpdateOK) action(e *Engine, ctrl *routineController) error {
-	e.OkResponseNum[ctrl.routineId]++
 	return nil
 }
 

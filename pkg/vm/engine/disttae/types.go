@@ -77,10 +77,11 @@ type Engine struct {
 	receiveLogTailTime syncLogTailTimestamp
 	subscribed         subscribedTable
 
-	cmsLock       sync.RWMutex
-	OkResponseNum [5]int
-	tableEntry    int64
-	columnEntry   int64
+	cmsLock     sync.RWMutex
+	nowFrom     [5]timestamp.Timestamp
+	nowTo       [5]timestamp.Timestamp
+	tableEntry  int64
+	columnEntry int64
 }
 
 type Partitions []*Partition

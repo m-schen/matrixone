@@ -16,10 +16,9 @@ package disttae
 
 import (
 	"context"
-	"github.com/matrixorigin/matrixone/pkg/logutil"
-
 	"github.com/matrixorigin/matrixone/pkg/catalog"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
+	"github.com/matrixorigin/matrixone/pkg/logutil"
 	"github.com/matrixorigin/matrixone/pkg/pb/api"
 )
 
@@ -43,7 +42,7 @@ func consumeEntry(
 		switch e.TableId {
 		case catalog.MO_TABLES_ID:
 			bat, _ := batch.ProtoBatchToBatch(e.Bat)
-			engine.catalog.InsertTable(bat, engine.OkResponseNum[4])
+			engine.catalog.InsertTable(bat, engine.nowFrom[4], engine.nowTo[4])
 
 			engine.cmsLock.Lock()
 			engine.tableEntry++
@@ -55,8 +54,7 @@ func consumeEntry(
 			engine.catalog.InsertDatabase(bat)
 		case catalog.MO_COLUMNS_ID:
 			bat, _ := batch.ProtoBatchToBatch(e.Bat)
-			engine.catalog.InsertColumns(bat, engine.OkResponseNum[4])
-
+			engine.catalog.InsertColumns(bat, engine.nowFrom[4], engine.nowTo[4])
 			engine.cmsLock.Lock()
 			engine.columnEntry++
 			logutil.Infof("cms that2, receive mo_column entry sum is %d\n", engine.columnEntry)

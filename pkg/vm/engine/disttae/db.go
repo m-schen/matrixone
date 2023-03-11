@@ -100,7 +100,7 @@ func (e *Engine) init(ctx context.Context, m *mpool.MPool) error {
 		state, done := part.MutateState()
 		state.HandleRowsInsert(ctx, ibat, MO_PRIMARY_OFF+catalog.MO_TABLES_REL_ID_IDX, packer)
 		done()
-		e.catalog.InsertTable(bat, 0)
+		e.catalog.InsertTable(bat, timestamp.Timestamp{}, timestamp.Timestamp{})
 		bat.Clean(m)
 
 		part = e.partitions[[2]uint64{catalog.MO_CATALOG_ID, catalog.MO_COLUMNS_ID}][0]
@@ -134,7 +134,7 @@ func (e *Engine) init(ctx context.Context, m *mpool.MPool) error {
 		state, done = part.MutateState()
 		state.HandleRowsInsert(ctx, ibat, MO_PRIMARY_OFF+catalog.MO_COLUMNS_ATT_UNIQ_NAME_IDX, packer)
 		done()
-		e.catalog.InsertColumns(bat, 0)
+		e.catalog.InsertColumns(bat, timestamp.Timestamp{}, timestamp.Timestamp{})
 		bat.Clean(m)
 	}
 
@@ -160,7 +160,7 @@ func (e *Engine) init(ctx context.Context, m *mpool.MPool) error {
 		state, done := part.MutateState()
 		state.HandleRowsInsert(ctx, ibat, MO_PRIMARY_OFF+catalog.MO_TABLES_REL_ID_IDX, packer)
 		done()
-		e.catalog.InsertTable(bat, 0)
+		e.catalog.InsertTable(bat, timestamp.Timestamp{}, timestamp.Timestamp{})
 		bat.Clean(m)
 
 		part = e.partitions[[2]uint64{catalog.MO_CATALOG_ID, catalog.MO_COLUMNS_ID}][0]
@@ -194,7 +194,7 @@ func (e *Engine) init(ctx context.Context, m *mpool.MPool) error {
 		state, done = part.MutateState()
 		state.HandleRowsInsert(ctx, ibat, MO_PRIMARY_OFF+catalog.MO_COLUMNS_ATT_UNIQ_NAME_IDX, packer)
 		done()
-		e.catalog.InsertColumns(bat, 0)
+		e.catalog.InsertColumns(bat, timestamp.Timestamp{}, timestamp.Timestamp{})
 		bat.Clean(m)
 	}
 
@@ -220,7 +220,7 @@ func (e *Engine) init(ctx context.Context, m *mpool.MPool) error {
 		state, done := part.MutateState()
 		state.HandleRowsInsert(ctx, ibat, MO_PRIMARY_OFF+catalog.MO_TABLES_REL_ID_IDX, packer)
 		done()
-		e.catalog.InsertTable(bat, 0)
+		e.catalog.InsertTable(bat, timestamp.Timestamp{}, timestamp.Timestamp{})
 		bat.Clean(m)
 
 		part = e.partitions[[2]uint64{catalog.MO_CATALOG_ID, catalog.MO_COLUMNS_ID}][0]
@@ -254,7 +254,7 @@ func (e *Engine) init(ctx context.Context, m *mpool.MPool) error {
 		state, done = part.MutateState()
 		state.HandleRowsInsert(ctx, ibat, MO_PRIMARY_OFF+catalog.MO_COLUMNS_ATT_UNIQ_NAME_IDX, packer)
 		done()
-		e.catalog.InsertColumns(bat, 0)
+		e.catalog.InsertColumns(bat, timestamp.Timestamp{}, timestamp.Timestamp{})
 		bat.Clean(m)
 	}
 
