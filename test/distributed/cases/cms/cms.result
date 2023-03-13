@@ -22,6 +22,7 @@ SQL syntax error: column "average" must appear in the GROUP BY clause or be used
 SELECT a,COUNT(DISTINCT b) FROM t1 GROUP BY a HAVING COUNT(DISTINCT b) > 50;
 a	COUNT(DISTINCT b)
 1	65536
+select mo_ctl('dn', 'flush', 'db.t1');
 SELECT DISTINCT a, SUM( b) FROM t1 GROUP BY a HAVING SUM( b) > 50;
 a	SUM( b)
 1	2147516416
