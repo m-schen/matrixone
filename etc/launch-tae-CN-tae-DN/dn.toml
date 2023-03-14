@@ -49,6 +49,6 @@ service-address = "127.0.0.1:32003"
 rpc-max-message-size = "16KiB"
 rpc-payload-copy-buffer-size = "16KiB"
 rpc-enable-checksum = true
-logtail-collect-interval = "60s"
+logtail-collect-interval = "36000s"
 logtail-response-send-timeout = "10s"
 max-logtail-fetch-failure = 5
