@@ -18,6 +18,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
+	"github.com/matrixorigin/matrixone/pkg/sql/plan/function/builtin/unary"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 )
 
@@ -360,7 +361,7 @@ var supportedBuiltins = []FuncNew{
 				retType: func(parameters []types.Type) types.Type {
 					return types.T_float64.ToType()
 				},
-				NewOp: builtInSin,
+				NewOp: unary.Sin,
 			},
 		},
 	},
@@ -417,7 +418,7 @@ var supportedBuiltins = []FuncNew{
 				retType: func(parameters []types.Type) types.Type {
 					return types.T_float64.ToType()
 				},
-				NewOp: builtInTan,
+				NewOp: unary.Tan,
 			},
 		},
 	},

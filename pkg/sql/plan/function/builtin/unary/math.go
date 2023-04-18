@@ -15,16 +15,14 @@
 package unary
 
 import (
-	"github.com/matrixorigin/matrixone/pkg/common/moerr"
-	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
-	"github.com/matrixorigin/matrixone/pkg/sql/plan/function/operator"
 	"github.com/matrixorigin/matrixone/pkg/vectorize/momath"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 )
 
 type mathFn func(float64) (float64, error)
 
+/*
 func math1(ivecs []*vector.Vector, proc *process.Process, fn mathFn) (*vector.Vector, error) {
 	ivec := ivecs[0]
 	//Here we need to classify it into three scenes
@@ -125,4 +123,43 @@ func Sinh(vs []*vector.Vector, proc *process.Process) (*vector.Vector, error) {
 
 func Tan(vs []*vector.Vector, proc *process.Process) (*vector.Vector, error) {
 	return math1(vs, proc, momath.Tan)
+}
+*/
+
+func Sin(parameters []*vector.Vector, result vector.FunctionResultWrapper,
+	proc *process.Process, length int) error {
+	return math1(parameters, result, proc, length, momath.Sin)
+}
+
+func Sinh(parameters []*vector.Vector, result vector.FunctionResultWrapper,
+	proc *process.Process, length int) error {
+	return math1(parameters, result, proc, length, momath.Sinh)
+}
+
+func Tan(parameters []*vector.Vector, result vector.FunctionResultWrapper,
+	proc *process.Process, length int) error {
+	return math1(parameters, result, proc, length, momath.Tan)
+}
+
+func math1(ivecs []*vector.Vector, result vector.FunctionResultWrapper,
+	proc *process.Process, length int, fn mathFn) error {
+	rs := vector.MustFunctionResult[float64](result)
+	ivec := vector.GenerateFunctionFixedTypeParameter[float64](ivecs[0])
+	for i := uint64(0); i < uint64(length); i++ {
+		v, null := ivec.GetValue(i)
+		if null {
+			if err := rs.Append(0, true); err != nil {
+				return err
+			}
+		} else {
+			val, err := fn(v)
+			if err != nil {
+				return err
+			}
+			if err = rs.Append(val, false); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
