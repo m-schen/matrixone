@@ -1675,6 +1675,7 @@ var tempListForBinaryFunctions2 = []FuncNew{
 		},
 	},
 
+	// Multi From here on.
 	{
 		functionId: PI,
 		class:      plan.Function_STRICT | plan.Function_MONOTONIC,
@@ -1689,6 +1690,41 @@ var tempListForBinaryFunctions2 = []FuncNew{
 					return types.T_float64.ToType()
 				},
 				NewOp: Pi,
+			},
+		},
+	},
+
+	{
+		functionId: DISABLE_FAULT_INJECTION,
+		class:      plan.Function_INTERNAL,
+		layout:     STANDARD_FUNCTION,
+		checkFn:    fixedTypeMatch,
+
+		Overloads: []overload{
+			{
+				overloadId: 0,
+				args:       []types.T{},
+				retType: func(parameters []types.Type) types.Type {
+					return types.T_bool.ToType()
+				},
+				NewOp: DisableFaultInjection,
+			},
+		},
+	},
+	{
+		functionId: ENABLE_FAULT_INJECTION,
+		class:      plan.Function_INTERNAL,
+		layout:     STANDARD_FUNCTION,
+		checkFn:    fixedTypeMatch,
+
+		Overloads: []overload{
+			{
+				overloadId: 0,
+				args:       []types.T{},
+				retType: func(parameters []types.Type) types.Type {
+					return types.T_bool.ToType()
+				},
+				NewOp: EnableFaultInjection,
 			},
 		},
 	},
