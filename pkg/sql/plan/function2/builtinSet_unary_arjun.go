@@ -524,15 +524,3 @@ func EnableFaultInjection(_ []*vector.Vector, result vector.FunctionResultWrappe
 	}
 	return nil
 }
-
-// PI
-
-func Pi(_ []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
-	rs := vector.MustFunctionResult[float64](result)
-	for i := uint64(0); i < uint64(length); i++ {
-		if err := rs.Append(pi.GetPi(), false); err != nil {
-			return err
-		}
-	}
-	return nil
-}
