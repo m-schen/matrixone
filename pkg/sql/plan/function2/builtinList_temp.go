@@ -1675,6 +1675,24 @@ var tempListForBinaryFunctions2 = []FuncNew{
 		},
 	},
 
+	{
+		functionId: PI,
+		class:      plan.Function_STRICT | plan.Function_MONOTONIC,
+		layout:     STANDARD_FUNCTION,
+		checkFn:    fixedTypeMatch,
+
+		Overloads: []overload{
+			{
+				overloadId: 0,
+				args:       []types.T{},
+				retType: func(parameters []types.Type) types.Type {
+					return types.T_float64.ToType()
+				},
+				NewOp: Pi,
+			},
+		},
+	},
+
 	// Multi From here on.
 	{
 		functionId: PI,
