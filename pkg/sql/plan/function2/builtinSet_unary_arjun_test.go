@@ -1436,7 +1436,8 @@ func TestDateTimeToWeekday(t *testing.T) {
 func initPiTestCase() []tcTemp {
 	return []tcTemp{
 		{
-			info:   "test pi",
+			info: "test pi",
+			//TODO: Validate if T_int8 is ok
 			inputs: []testutil.FunctionTestInput{testutil.NewFunctionTestInput(types.T_int8.ToType(), []int8{0}, []bool{false})},
 			expect: testutil.NewFunctionTestResult(types.T_float64.ToType(), false, []float64{math.Pi}, []bool{false}),
 		},
