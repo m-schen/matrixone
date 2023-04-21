@@ -16,6 +16,7 @@ package function2
 
 import (
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
+	"github.com/matrixorigin/matrixone/pkg/vectorize/timediff"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 )
 
@@ -66,7 +67,7 @@ func Startswith(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *
 
 // TIMEDIFF
 
-func TimeDiff(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
+func TimeDiff[T timediff.DiffT](ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
 	return nil
 }
 
