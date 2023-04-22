@@ -401,6 +401,71 @@ func TestCeil(t *testing.T) {
 	}
 }
 
+// StartsWith
+
+func initStartsWithTestCase() []tcTemp {
+	// FIXME: Migrating the testcases as it was from the original functions code. May refactor it later. Original code:https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/startswith_test.go#L28
+	var charVecBase = []string{"-123", "123", "+123", "8", ""}
+	var charVecBase2 = []string{"-", "+", "1", ""}
+	var nsp1, nsp2 []uint64
+	var origVecs = make([]testutil.FunctionTestInput, 2)
+	n1, n2 := len(charVecBase), len(charVecBase2)
+	inputVec := make([]string, n1*n2)
+	inputVec2 := make([]string, len(inputVec))
+	for i := 0; i < len(inputVec); i++ {
+		inputVec[i] = charVecBase[i/n2]
+		inputVec2[i] = charVecBase2[i%n2]
+		if (i / n2) == (n1 - 1) {
+			nsp1 = append(nsp1, uint64(i))
+		}
+		if (i % n2) == (n2 - 1) {
+			nsp2 = append(nsp2, uint64(i))
+		}
+	}
+
+	makeFunctionTestInputEndsWith := func(values []string, nsp []uint64) testutil.FunctionTestInput {
+		totalCount := len(values)
+		strs := make([]string, totalCount)
+		nulls := make([]bool, totalCount)
+		for i := 0; i < totalCount; i++ {
+			strs[i] = values[i]
+		}
+		for i := 0; i < len(nsp); i++ {
+			idx := nsp[i]
+			nulls[idx] = true
+		}
+		return testutil.NewFunctionTestInput(types.T_varchar.ToType(), strs, nulls)
+	}
+
+	origVecs[0] = makeFunctionTestInputEndsWith(inputVec, nsp1)
+	origVecs[1] = makeFunctionTestInputEndsWith(inputVec2, nsp2)
+
+	return []tcTemp{
+		{
+			info: "test StartsWith",
+			inputs: []testutil.FunctionTestInput{
+				origVecs[0],
+				origVecs[1],
+			},
+			expect: testutil.NewFunctionTestResult(types.T_uint8.ToType(), false,
+				[]uint8{1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1},
+				[]bool{false, false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, true, true, true, true}),
+		},
+	}
+}
+
+func TestStartsWith(t *testing.T) {
+	testCases := initStartsWithTestCase()
+
+	// do the test work.
+	proc := testutil.NewProcess()
+	for _, tc := range testCases {
+		fcTC := testutil.NewFunctionTestCase(proc, tc.inputs, tc.expect, StartsWith)
+		s, info := fcTC.Run()
+		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
+	}
+}
+
 func initEndsWithTestCase() []tcTemp {
 	// FIXME: Migrating the testcases as it was from the original functions code. May refactor it later. Original code:https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/endswith_test.go#L29
 	var charVecBase = []string{"123-", "321", "123+", "8", ""}
@@ -811,66 +876,56 @@ func TestLeft(t *testing.T) {
 	}
 }
 
-// StartsWith
-
-func initStartsWithTestCase() []tcTemp {
-	// FIXME: Migrating the testcases as it was from the original functions code. May refactor it later. Original code:https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/startswith_test.go#L28
-	var charVecBase = []string{"-123", "123", "+123", "8", ""}
-	var charVecBase2 = []string{"-", "+", "1", ""}
-	var nsp1, nsp2 []uint64
-	var origVecs = make([]testutil.FunctionTestInput, 2)
-	n1, n2 := len(charVecBase), len(charVecBase2)
-	inputVec := make([]string, n1*n2)
-	inputVec2 := make([]string, len(inputVec))
-	for i := 0; i < len(inputVec); i++ {
-		inputVec[i] = charVecBase[i/n2]
-		inputVec2[i] = charVecBase2[i%n2]
-		if (i / n2) == (n1 - 1) {
-			nsp1 = append(nsp1, uint64(i))
-		}
-		if (i % n2) == (n2 - 1) {
-			nsp2 = append(nsp2, uint64(i))
-		}
+// POWER
+func initPowerTestCase() []tcTemp {
+	cases := []struct {
+		left  float64
+		right float64
+		want  float64
+	}{
+		{1, 2, 1},
+		{2, 2, 4},
+		{3, 2, 9},
+		{3, 3, 27},
+		{4, 2, 16},
+		{4, 3, 64},
+		{4, 0.5, 2},
+		{5, 2, 25},
+		{6, 2, 36},
+		{7, 2, 49},
+		{8, 2, 64},
+		{0.5, 2, 0.25},
+		{1.5, 2, 2.25},
+		{2.5, 2, 6.25},
+		{3.5, 2, 12.25},
+		{4.5, 2, 20.25},
+		{5.5, 2, 30.25},
 	}
 
-	makeFunctionTestInputEndsWith := func(values []string, nsp []uint64) testutil.FunctionTestInput {
-		totalCount := len(values)
-		strs := make([]string, totalCount)
-		nulls := make([]bool, totalCount)
-		for i := 0; i < totalCount; i++ {
-			strs[i] = values[i]
-		}
-		for i := 0; i < len(nsp); i++ {
-			idx := nsp[i]
-			nulls[idx] = true
-		}
-		return testutil.NewFunctionTestInput(types.T_varchar.ToType(), strs, nulls)
-	}
+	var testInputs []tcTemp
+	for _, c := range cases {
 
-	origVecs[0] = makeFunctionTestInputEndsWith(inputVec, nsp1)
-	origVecs[1] = makeFunctionTestInputEndsWith(inputVec2, nsp2)
-
-	return []tcTemp{
-		{
-			info: "test StartsWith",
+		testInputs = append(testInputs, tcTemp{
+			info: "test pow ",
 			inputs: []testutil.FunctionTestInput{
-				origVecs[0],
-				origVecs[1],
+				// Create a input entry <float64, float64>
+				testutil.NewFunctionTestInput(types.T_float64.ToType(), []float64{c.left}, []bool{}),
+				testutil.NewFunctionTestInput(types.T_float64.ToType(), []float64{c.right}, []bool{}),
 			},
-			expect: testutil.NewFunctionTestResult(types.T_uint8.ToType(), false,
-				[]uint8{1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1},
-				[]bool{false, false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, true, true, true, true}),
-		},
+			expect: testutil.NewFunctionTestResult(types.T_float64.ToType(), false, []float64{c.want}, []bool{}),
+		})
 	}
+
+	return testInputs
 }
 
-func TestStartsWith(t *testing.T) {
-	testCases := initStartsWithTestCase()
+func TestPower(t *testing.T) {
+	testCases := initPowerTestCase()
 
 	// do the test work.
 	proc := testutil.NewProcess()
 	for _, tc := range testCases {
-		fcTC := testutil.NewFunctionTestCase(proc, tc.inputs, tc.expect, StartsWith)
+		fcTC := testutil.NewFunctionTestCase(proc, tc.inputs, tc.expect, Power)
 		s, info := fcTC.Run()
 		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
 	}
