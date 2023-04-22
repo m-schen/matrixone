@@ -245,8 +245,78 @@ func extractFromDatetime(unit string, d types.Datetime) (string, error) {
 }
 
 func ExtractFromTime(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
+	p1 := vector.GenerateFunctionStrParameter(ivecs[0])
+	p2 := vector.GenerateFunctionFixedTypeParameter[types.Time](ivecs[1])
+	rs := vector.MustFunctionResult[types.Varlena](result)
+
+	//TODO: ignoring 4 switch cases: Original code:https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/extract.go#L139
+	for i := uint64(0); i < uint64(length); i++ {
+		v1, null1 := p1.GetStrValue(i)
+		v2, null2 := p2.GetValue(i)
+		if null1 || null2 {
+			if err = rs.AppendBytes(nil, true); err != nil {
+				return err
+			}
+		} else {
+			res, _ := extractFromTime(function2Util.QuickBytesToStr(v1), v2)
+			if err = rs.AppendBytes(function2Util.QuickStrToBytes(res), false); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
+
+var validTimeUnit = map[string]struct{}{
+	"microsecond":        {},
+	"second":             {},
+	"minute":             {},
+	"hour":               {},
+	"second_microsecond": {},
+	"minute_microsecond": {},
+	"minute_second":      {},
+	"hour_microsecond":   {},
+	"hour_second":        {},
+	"hour_minute":        {},
+	"day_microsecond":    {},
+	"day_second":         {},
+	"day_minute":         {},
+	"day_hour":           {},
+}
+
+func extractFromTime(unit string, t types.Time) (string, error) {
+	if _, ok := validTimeUnit[unit]; !ok {
+		return "", moerr.NewInternalErrorNoCtx("invalid unit")
+	}
+	var value string
+	switch unit {
+	case "microsecond":
+		value = fmt.Sprintf("%d", int(t))
+	case "second":
+		value = fmt.Sprintf("%02d", int(t.Sec()))
+	case "minute":
+		value = fmt.Sprintf("%02d", int(t.Minute()))
+	case "hour", "day_hour":
+		value = fmt.Sprintf("%02d", int(t.Hour()))
+	case "second_microsecond":
+		microSec := fmt.Sprintf("%0*d", 6, int(t.MicroSec()))
+		value = fmt.Sprintf("%2d%s", int(t.Sec()), microSec)
+	case "minute_microsecond":
+		microSec := fmt.Sprintf("%0*d", 6, int(t.MicroSec()))
+		value = fmt.Sprintf("%2d%2d%s", int(t.Minute()), int(t.Sec()), microSec)
+	case "minute_second":
+		value = fmt.Sprintf("%2d%2d", int(t.Minute()), int(t.Sec()))
+	case "hour_microsecond", "day_microsecond":
+		microSec := fmt.Sprintf("%0*d", 6, int(t.MicroSec()))
+		value = fmt.Sprintf("%2d%2d%2d%s", int(t.Hour()), int(t.Minute()), int(t.Sec()), microSec)
+	case "hour_second", "day_second":
+		value = fmt.Sprintf("%2d%2d%2d", int(t.Hour()), int(t.Minute()), int(t.Sec()))
+	case "hour_minute", "day_minute":
+		value = fmt.Sprintf("%2d%2d", int(t.Hour()), int(t.Minute()))
+	}
+	return value, nil
+}
+
 func ExtractFromVarchar(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
 	return nil
 }
