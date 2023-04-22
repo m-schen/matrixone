@@ -16,6 +16,8 @@ package function2
 
 import (
 	"bytes"
+	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/common/moerr"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/sql/plan/function2/function2Util"
@@ -92,16 +94,160 @@ func isEqualSuffix(b1, b2 string) uint8 {
 
 // EXTRACT
 
-func ExtractFromDatetime(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
+func ExtractFromDate(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
+	p1 := vector.GenerateFunctionStrParameter(ivecs[0])
+	p2 := vector.GenerateFunctionFixedTypeParameter[types.Date](ivecs[1])
+	rs := vector.MustFunctionResult[uint32](result)
+
+	//TODO: ignoring 4 switch cases: Original code.https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/extract.go#L76
+	for i := uint64(0); i < uint64(length); i++ {
+		v1, null1 := p1.GetStrValue(i)
+		v2, null2 := p2.GetValue(i)
+		if null1 || null2 {
+			if err = rs.Append(0, true); err != nil {
+				return err
+			}
+		} else {
+			res, _ := extractFromDate(string(v1), v2)
+			if err = rs.Append(res, false); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
-func ExtractFromDate(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
+
+var validDateUnit = map[string]struct{}{
+	"year":       {},
+	"month":      {},
+	"day":        {},
+	"year_month": {},
+	"quarter":    {},
+}
+
+func extractFromDate(unit string, d types.Date) (uint32, error) {
+	if _, ok := validDateUnit[unit]; !ok {
+		return 0, moerr.NewInternalErrorNoCtx("invalid unit")
+	}
+	var result uint32
+	switch unit {
+	case "day":
+		result = uint32(d.Day())
+	case "week":
+		result = uint32(d.WeekOfYear2())
+	case "month":
+		result = uint32(d.Month())
+	case "quarter":
+		result = d.Quarter()
+	case "year_month":
+		result = d.YearMonth()
+	case "year":
+		result = uint32(d.Year())
+	}
+	return result, nil
+}
+
+func ExtractFromDatetime(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
+	p1 := vector.GenerateFunctionStrParameter(ivecs[0])
+	p2 := vector.GenerateFunctionFixedTypeParameter[types.Datetime](ivecs[1])
+	rs := vector.MustFunctionResult[types.Varlena](result)
+
+	//TODO: ignoring 4 switch cases: Original code: https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/extract.go#L108
+	for i := uint64(0); i < uint64(length); i++ {
+		v1, null1 := p1.GetStrValue(i)
+		v2, null2 := p2.GetValue(i)
+		if null1 || null2 {
+			if err = rs.AppendBytes(nil, true); err != nil {
+				return err
+			}
+		} else {
+			//TODO: you might want to check for all the places which forgot using function2Util.QuickBytesToSt & function2Util.QuickStrToBytes
+			res, _ := extractFromDatetime(function2Util.QuickBytesToStr(v1), v2)
+			if err = rs.AppendBytes(function2Util.QuickStrToBytes(res), false); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
-func ExtractFromTime(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
+
+var validDatetimeUnit = map[string]struct{}{
+	"microsecond":        {},
+	"second":             {},
+	"minute":             {},
+	"hour":               {},
+	"day":                {},
+	"week":               {},
+	"month":              {},
+	"quarter":            {},
+	"year":               {},
+	"second_microsecond": {},
+	"minute_microsecond": {},
+	"minute_second":      {},
+	"hour_microsecond":   {},
+	"hour_second":        {},
+	"hour_minute":        {},
+	"day_microsecond":    {},
+	"day_second":         {},
+	"day_minute":         {},
+	"day_hour":           {},
+	"year_month":         {},
+}
+
+func extractFromDatetime(unit string, d types.Datetime) (string, error) {
+	if _, ok := validDatetimeUnit[unit]; !ok {
+		return "", moerr.NewInternalErrorNoCtx("invalid unit")
+	}
+	var value string
+	switch unit {
+	case "microsecond":
+		value = fmt.Sprintf("%d", int(d.MicroSec()))
+	case "second":
+		value = fmt.Sprintf("%02d", int(d.Sec()))
+	case "minute":
+		value = fmt.Sprintf("%02d", int(d.Minute()))
+	case "hour":
+		value = fmt.Sprintf("%02d", int(d.Hour()))
+	case "day":
+		value = fmt.Sprintf("%02d", int(d.ToDate().Day()))
+	case "week":
+		value = fmt.Sprintf("%02d", int(d.ToDate().WeekOfYear2()))
+	case "month":
+		value = fmt.Sprintf("%02d", int(d.ToDate().Month()))
+	case "quarter":
+		value = fmt.Sprintf("%d", int(d.ToDate().Quarter()))
+	case "year":
+		value = fmt.Sprintf("%04d", int(d.ToDate().Year()))
+	case "second_microsecond":
+		value = d.SecondMicrosecondStr()
+	case "minute_microsecond":
+		value = d.MinuteMicrosecondStr()
+	case "minute_second":
+		value = d.MinuteSecondStr()
+	case "hour_microsecond":
+		value = d.HourMicrosecondStr()
+	case "hour_second":
+		value = d.HourSecondStr()
+	case "hour_minute":
+		value = d.HourMinuteStr()
+	case "day_microsecond":
+		value = d.DayMicrosecondStr()
+	case "day_second":
+		value = d.DaySecondStr()
+	case "day_minute":
+		value = d.DayMinuteStr()
+	case "day_hour":
+		value = d.DayHourStr()
+	case "year_month":
+		value = d.ToDate().YearMonthStr()
+	}
+	return value, nil
+}
+
+func ExtractFromTime(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
 	return nil
 }
-func ExtractFromVarchar(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
+func ExtractFromVarchar(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
 	return nil
 }
 
