@@ -258,6 +258,7 @@ func ExtractFromTime(ivecs []*vector.Vector, result vector.FunctionResultWrapper
 				return err
 			}
 		} else {
+			//TODO: No UT. Please validate
 			res, _ := extractFromTime(function2Util.QuickBytesToStr(v1), v2)
 			if err = rs.AppendBytes(function2Util.QuickStrToBytes(res), false); err != nil {
 				return err
@@ -318,7 +319,46 @@ func extractFromTime(unit string, t types.Time) (string, error) {
 }
 
 func ExtractFromVarchar(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
+	p1 := vector.GenerateFunctionStrParameter(ivecs[0])
+	p2 := vector.GenerateFunctionStrParameter(ivecs[1])
+	rs := vector.MustFunctionResult[types.Varlena](result)
+
+	//TODO: ignoring 4 switch cases: Original code:https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/extract.go#L170
+	for i := uint64(0); i < uint64(length); i++ {
+		v1, null1 := p1.GetStrValue(i)
+		v2, null2 := p2.GetStrValue(i)
+		if null1 || null2 {
+			if err = rs.AppendBytes(nil, true); err != nil {
+				return err
+			}
+		} else {
+			//TODO: No UT. Please validate
+			res, _ := extractFromVarchar(function2Util.QuickBytesToStr(v1), function2Util.QuickBytesToStr(v2), p2.GetType().Scale)
+			if err = rs.AppendBytes(function2Util.QuickStrToBytes(res), false); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+func extractFromVarchar(unit string, t string, scale int32) (string, error) {
+	var result string
+	if value, err := types.ParseDatetime(t, scale); err == nil {
+		result, err = extractFromDatetime(unit, value)
+		if err != nil {
+			return "", err
+		}
+	} else if value, err := types.ParseTime(t, scale); err == nil {
+		result, err = extractFromTime(unit, value)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		return "", moerr.NewInternalErrorNoCtx("invalid input")
+	}
+
+	return result, nil
 }
 
 // FINDINSET
