@@ -600,7 +600,3 @@ func UTCTimestamp(_ []*vector.Vector, result vector.FunctionResultWrapper, _ *pr
 	}
 	return nil
 }
-
-func TimestampDiff(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
-	return nil
-}
