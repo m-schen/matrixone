@@ -155,8 +155,38 @@ func Instr(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *proce
 
 // LEFT
 
-func Left(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
+func Left(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
+	p1 := vector.GenerateFunctionStrParameter(ivecs[0])
+	p2 := vector.GenerateFunctionFixedTypeParameter[int64](ivecs[1])
+	rs := vector.MustFunctionResult[types.Varlena](result)
+
+	for i := uint64(0); i < uint64(length); i++ {
+		v1, null1 := p1.GetStrValue(i)
+		v2, null2 := p2.GetValue(i)
+		if null1 || null2 {
+			if err = rs.AppendBytes(nil, true); err != nil {
+				return err
+			}
+		} else {
+			//TODO: Ignoring 4 switch cases: https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/left.go#L38
+			res := evalLeft(function2Util.QuickBytesToStr(v1), v2)
+			if err = rs.AppendBytes(function2Util.QuickStrToBytes(res), false); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+func evalLeft(str string, length int64) string {
+	runeStr := []rune(str)
+	leftLength := int(length)
+	if strLength := len(runeStr); leftLength > strLength {
+		leftLength = strLength
+	} else if leftLength < 0 {
+		leftLength = 0
+	}
+	return string(runeStr[:leftLength])
 }
 
 // STARTSWITH

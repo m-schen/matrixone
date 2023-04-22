@@ -1751,7 +1751,7 @@ var tempListForBinaryFunctions2 = []FuncNew{
 				retType: func(parameters []types.Type) types.Type {
 					return types.T_varchar.ToType()
 				},
-				NewOp: nil, // Left,
+				NewOp: Left,
 			},
 			{
 				overloadId: 1,
@@ -1759,7 +1759,7 @@ var tempListForBinaryFunctions2 = []FuncNew{
 				retType: func(parameters []types.Type) types.Type {
 					return types.T_char.ToType()
 				},
-				NewOp: nil, //Left,
+				NewOp: Left,
 			},
 		},
 	},

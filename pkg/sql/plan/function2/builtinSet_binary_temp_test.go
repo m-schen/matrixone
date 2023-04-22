@@ -608,3 +608,205 @@ func TestInstr(t *testing.T) {
 		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
 	}
 }
+
+// Left
+func initLeftTestCase() []tcTemp {
+	cases := []struct {
+		s    string
+		len  int64
+		want string
+	}{
+		{
+			"abcde",
+			3,
+			"abc",
+		},
+		{
+			"abcde",
+			0,
+			"",
+		},
+		{
+			"abcde",
+			-1,
+			"",
+		},
+		{
+			"abcde",
+			100,
+			"abcde",
+		},
+		{
+			"foobarbar",
+			5,
+			"fooba",
+		},
+
+		// TestLeft1
+		{
+			"是都方式快递费",
+			3,
+			"是都方",
+		},
+		{
+			"ｱｲｳｴｵ",
+			3,
+			"ｱｲｳ",
+		},
+		{
+			"ｱｲｳｴｵ ",
+			3,
+			"ｱｲｳ",
+		},
+		{
+			"ｱｲｳｴｵ  ",
+			3,
+			"ｱｲｳ",
+		},
+		{
+			"ｱｲｳｴｵ   ",
+			3,
+			"ｱｲｳ",
+		},
+		{
+			"あいうえお",
+			3,
+			"あいう",
+		},
+		{
+			"あいうえお ",
+			3,
+			"あいう",
+		},
+		{
+			"あいうえお  ",
+			3,
+			"あいう",
+		},
+		{
+			"あいうえお   ",
+			3,
+			"あいう",
+		},
+		{
+			"龔龖龗龞龡",
+			3,
+			"龔龖龗",
+		},
+		{
+			"龔龖龗龞龡 ",
+			3,
+			"龔龖龗",
+		},
+		{
+			"龔龖龗龞龡  ",
+			3,
+			"龔龖龗",
+		},
+		{
+			"龔龖龗龞龡   ",
+			3,
+			"龔龖龗",
+		},
+		{
+			"2017-06-15    ",
+			8,
+			"2017-06-",
+		},
+		{
+			"2019-06-25    ",
+			8,
+			"2019-06-",
+		},
+		{
+			"    2019-06-25  ",
+			8,
+			"    2019",
+		},
+		{
+			"   2019-06-25   ",
+			8,
+			"   2019-",
+		},
+		{
+			"    2012-10-12   ",
+			8,
+			"    2012",
+		},
+		{
+			"   2004-04-24.   ",
+			8,
+			"   2004-",
+		},
+		{
+			"   2008-12-04.  ",
+			8,
+			"   2008-",
+		},
+		{
+			"    2012-03-23.   ",
+			8,
+			"    2012",
+		},
+		{
+			"    2013-04-30  ",
+			8,
+			"    2013",
+		},
+		{
+			"  1994-10-04  ",
+			8,
+			"  1994-1",
+		},
+		{
+			"   2018-06-04  ",
+			8,
+			"   2018-",
+		},
+		{
+			" 2012-10-12  ",
+			8,
+			" 2012-10",
+		},
+		{
+			"1241241^&@%#^*^!@#&*(!&    ",
+			12,
+			"1241241^&@%#",
+		},
+		{
+			" 123 ",
+			2,
+			" 1",
+		},
+	}
+
+	var testInputs []tcTemp
+	for _, c := range cases {
+
+		testInputs = append(testInputs, tcTemp{
+
+			//TODO: Avoiding TestLeft2. Original code: https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/left_test.go#L247
+			info: "test left ",
+			inputs: []testutil.FunctionTestInput{
+				// Create a input entry <str, int>
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), []string{c.s}, []bool{}),
+				testutil.NewFunctionTestInput(types.T_int64.ToType(), []int64{c.len}, []bool{}),
+			},
+			expect: testutil.NewFunctionTestResult(types.T_varchar.ToType(), false, []string{c.want}, []bool{}),
+		})
+	}
+
+	return testInputs
+
+}
+
+func TestLeft(t *testing.T) {
+	testCases := initLeftTestCase()
+
+	proc := testutil.NewProcess()
+	for _, tc := range testCases {
+		fcTC := testutil.NewFunctionTestCase(proc, tc.inputs, tc.expect, Left)
+		s, info := fcTC.Run()
+		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
+	}
+}
