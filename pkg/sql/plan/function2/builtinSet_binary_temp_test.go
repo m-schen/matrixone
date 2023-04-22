@@ -464,3 +464,88 @@ func TestEndsWith(t *testing.T) {
 		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
 	}
 }
+
+func initFindInSetTestCase() []tcTemp {
+
+	return []tcTemp{
+		{
+			info: "test findinset",
+			inputs: []testutil.FunctionTestInput{
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), []string{
+					"abc",
+					"xyz",
+					"z",
+					"abc", //TODO: Ignoring the scalar checks. Please fix. Original code:https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/findinset_test.go#L67
+					"abc",
+					"abc",
+					"",
+					"abc",
+				},
+					[]bool{
+						false,
+						false,
+						false,
+						false,
+						false,
+						false,
+						true,
+						false,
+					}),
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), []string{
+					"abc,def",
+					"dec,xyz,abc",
+					"a,e,c,z",
+					"abc,def",
+					"abc,def",
+					"abc,def",
+					"abc",
+					"",
+				},
+					[]bool{
+						false,
+						false,
+						false,
+						false,
+						false,
+						false,
+						false,
+						true,
+					}),
+			},
+			expect: testutil.NewFunctionTestResult(types.T_uint64.ToType(), false,
+				[]uint64{
+					1,
+					2,
+					4,
+					1,
+					1,
+					1,
+					0,
+					0,
+				},
+				[]bool{
+					false,
+					false,
+					false,
+					false,
+					false,
+					false,
+					true,
+					true,
+				},
+			),
+		},
+	}
+}
+
+func TestFindInSet(t *testing.T) {
+	testCases := initFindInSetTestCase()
+
+	// do the test work.
+	proc := testutil.NewProcess()
+	for _, tc := range testCases {
+		fcTC := testutil.NewFunctionTestCase(proc, tc.inputs, tc.expect, FindInSet)
+		s, info := fcTC.Run()
+		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
+	}
+}

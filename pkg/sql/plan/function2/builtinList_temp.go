@@ -1717,7 +1717,7 @@ var tempListForBinaryFunctions2 = []FuncNew{
 				retType: func(parameters []types.Type) types.Type {
 					return types.T_uint64.ToType()
 				},
-				NewOp: nil, //FindInSet,
+				NewOp: FindInSet,
 			},
 		},
 	},
