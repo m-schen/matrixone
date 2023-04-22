@@ -810,3 +810,68 @@ func TestLeft(t *testing.T) {
 		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
 	}
 }
+
+// StartsWith
+
+func initStartsWithTestCase() []tcTemp {
+	// FIXME: Migrating the testcases as it was from the original functions code. May refactor it later. Original code:https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/startswith_test.go#L28
+	var charVecBase = []string{"-123", "123", "+123", "8", ""}
+	var charVecBase2 = []string{"-", "+", "1", ""}
+	var nsp1, nsp2 []uint64
+	var origVecs = make([]testutil.FunctionTestInput, 2)
+	n1, n2 := len(charVecBase), len(charVecBase2)
+	inputVec := make([]string, n1*n2)
+	inputVec2 := make([]string, len(inputVec))
+	for i := 0; i < len(inputVec); i++ {
+		inputVec[i] = charVecBase[i/n2]
+		inputVec2[i] = charVecBase2[i%n2]
+		if (i / n2) == (n1 - 1) {
+			nsp1 = append(nsp1, uint64(i))
+		}
+		if (i % n2) == (n2 - 1) {
+			nsp2 = append(nsp2, uint64(i))
+		}
+	}
+
+	makeFunctionTestInputEndsWith := func(values []string, nsp []uint64) testutil.FunctionTestInput {
+		totalCount := len(values)
+		strs := make([]string, totalCount)
+		nulls := make([]bool, totalCount)
+		for i := 0; i < totalCount; i++ {
+			strs[i] = values[i]
+		}
+		for i := 0; i < len(nsp); i++ {
+			idx := nsp[i]
+			nulls[idx] = true
+		}
+		return testutil.NewFunctionTestInput(types.T_varchar.ToType(), strs, nulls)
+	}
+
+	origVecs[0] = makeFunctionTestInputEndsWith(inputVec, nsp1)
+	origVecs[1] = makeFunctionTestInputEndsWith(inputVec2, nsp2)
+
+	return []tcTemp{
+		{
+			info: "test StartsWith",
+			inputs: []testutil.FunctionTestInput{
+				origVecs[0],
+				origVecs[1],
+			},
+			expect: testutil.NewFunctionTestResult(types.T_uint8.ToType(), false,
+				[]uint8{1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1},
+				[]bool{false, false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, true, true, true, true}),
+		},
+	}
+}
+
+func TestStartsWith(t *testing.T) {
+	testCases := initStartsWithTestCase()
+
+	// do the test work.
+	proc := testutil.NewProcess()
+	for _, tc := range testCases {
+		fcTC := testutil.NewFunctionTestCase(proc, tc.inputs, tc.expect, StartsWith)
+		s, info := fcTC.Run()
+		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
+	}
+}

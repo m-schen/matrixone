@@ -33,6 +33,37 @@ import (
 	"strings"
 )
 
+// STARTSWITH
+
+func StartsWith(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
+	p1 := vector.GenerateFunctionStrParameter(ivecs[0])
+	p2 := vector.GenerateFunctionStrParameter(ivecs[1])
+	rs := vector.MustFunctionResult[uint8](result)
+
+	//TODO: ignoring 4 switch cases: Original code:https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/startswith.go#L36
+	for i := uint64(0); i < uint64(length); i++ {
+		v1, null1 := p1.GetStrValue(i)
+		v2, null2 := p2.GetStrValue(i)
+		if null1 || null2 {
+			if err = rs.Append(0, true); err != nil {
+				return err
+			}
+		} else {
+			res := hasPrefix(v1, v2)
+			if err = rs.Append(res, false); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+func hasPrefix(b1, b2 []byte) uint8 {
+	if len(b1) >= len(b2) && bytes.Equal(b1[:len(b2)], b2) {
+		return 1
+	}
+	return 0
+}
+
 // ENDSWITH
 
 func EndsWith(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
@@ -187,12 +218,6 @@ func evalLeft(str string, length int64) string {
 		leftLength = 0
 	}
 	return string(runeStr[:leftLength])
-}
-
-// STARTSWITH
-
-func Startswith(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
-	return nil
 }
 
 //POW
