@@ -1674,21 +1674,20 @@ var tempListForBinaryFunctions2 = []FuncNew{
 			},
 		},
 	},
-
 	{
-		functionId: PI,
-		class:      plan.Function_STRICT | plan.Function_MONOTONIC,
+		functionId: TIMESTAMPDIFF,
+		class:      plan.Function_STRICT,
 		layout:     STANDARD_FUNCTION,
 		checkFn:    fixedTypeMatch,
 
 		Overloads: []overload{
 			{
 				overloadId: 0,
-				args:       []types.T{},
+				args:       []types.T{types.T_varchar, types.T_datetime, types.T_datetime},
 				retType: func(parameters []types.Type) types.Type {
-					return types.T_float64.ToType()
+					return types.T_int64.ToType()
 				},
-				NewOp: Pi,
+				NewOp: nil, //TimestampDiff,
 			},
 		},
 	},
@@ -1794,23 +1793,6 @@ var tempListForBinaryFunctions2 = []FuncNew{
 					return types.T_datetime.ToType()
 				},
 				NewOp: UTCTimestamp,
-			},
-		},
-	},
-	{
-		functionId: TIMESTAMPDIFF,
-		class:      plan.Function_STRICT,
-		layout:     STANDARD_FUNCTION,
-		checkFn:    fixedTypeMatch,
-
-		Overloads: []overload{
-			{
-				overloadId: 0,
-				args:       []types.T{types.T_varchar, types.T_datetime, types.T_datetime},
-				retType: func(parameters []types.Type) types.Type {
-					return types.T_int64.ToType()
-				},
-				NewOp: TimestampDiff,
 			},
 		},
 	},
