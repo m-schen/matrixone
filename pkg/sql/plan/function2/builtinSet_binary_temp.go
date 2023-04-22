@@ -24,6 +24,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/util/fault"
 	"github.com/matrixorigin/matrixone/pkg/vectorize/datediff"
 	"github.com/matrixorigin/matrixone/pkg/vectorize/floor"
+	"github.com/matrixorigin/matrixone/pkg/vectorize/instr"
 	"github.com/matrixorigin/matrixone/pkg/vectorize/timediff"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"golang.org/x/exp/constraints"
@@ -115,7 +116,40 @@ func findInStrList(str, strlist string) uint64 {
 
 // INSTR
 
-func Instr(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) error {
+func Instr(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
+	p1 := vector.GenerateFunctionStrParameter(ivecs[0])
+	p2 := vector.GenerateFunctionStrParameter(ivecs[1])
+	rs := vector.MustFunctionResult[int64](result)
+
+	//TODO: ignoring maxLen: Original code:https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/instr.go#L32
+	for i := uint64(0); i < uint64(length); i++ {
+		v1, null1 := p1.GetStrValue(i)
+		v2, null2 := p2.GetStrValue(i)
+		if null1 || null2 {
+			if err = rs.Append(0, true); err != nil {
+				return err
+			}
+		} else {
+			var res int64
+
+			str1 := function2Util.QuickBytesToStr(v1)
+			str2 := function2Util.QuickBytesToStr(v2)
+
+			s1GoOn, s2GoOn := len(str1) > 1, len(str2) > 1
+			//TODO Validate: Original code: https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/vectorize/instr/instr.go#L74
+			if s1GoOn && s2GoOn {
+				res = instr.Single(str1, str2)
+			} else if s1GoOn {
+				res = instr.Single(str1, str2)
+			} else {
+				res = instr.Single(str2, str1)
+			}
+
+			if err = rs.Append(res, false); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

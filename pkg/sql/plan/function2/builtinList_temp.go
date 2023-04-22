@@ -1734,7 +1734,7 @@ var tempListForBinaryFunctions2 = []FuncNew{
 				retType: func(parameters []types.Type) types.Type {
 					return types.T_int64.ToType()
 				},
-				NewOp: nil, //Instr,
+				NewOp: Instr,
 			},
 		},
 	},

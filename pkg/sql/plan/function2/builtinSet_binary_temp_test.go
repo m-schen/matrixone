@@ -420,8 +420,23 @@ func initEndsWithTestCase() []tcTemp {
 			nsp2 = append(nsp2, uint64(i))
 		}
 	}
-	origVecs[0] = MakeFunctionTestInputEndsWith(inputVec, nsp1)
-	origVecs[1] = MakeFunctionTestInputEndsWith(inputVec2, nsp2)
+
+	makeFunctionTestInputEndsWith := func(values []string, nsp []uint64) testutil.FunctionTestInput {
+		totalCount := len(values)
+		strs := make([]string, totalCount)
+		nulls := make([]bool, totalCount)
+		for i := 0; i < totalCount; i++ {
+			strs[i] = values[i]
+		}
+		for i := 0; i < len(nsp); i++ {
+			idx := nsp[i]
+			nulls[idx] = true
+		}
+		return testutil.NewFunctionTestInput(types.T_varchar.ToType(), strs, nulls)
+	}
+
+	origVecs[0] = makeFunctionTestInputEndsWith(inputVec, nsp1)
+	origVecs[1] = makeFunctionTestInputEndsWith(inputVec2, nsp2)
 
 	return []tcTemp{
 		{
@@ -435,22 +450,6 @@ func initEndsWithTestCase() []tcTemp {
 				[]bool{false, false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, true, true, true, true}),
 		},
 	}
-}
-
-func MakeFunctionTestInputEndsWith(values []string, nsp []uint64) testutil.FunctionTestInput {
-
-	totalCount := len(values)
-	strs := make([]string, totalCount)
-	nulls := make([]bool, totalCount)
-	for i := 0; i < totalCount; i++ {
-		strs[i] = values[i]
-	}
-
-	for i := 0; i < len(nsp); i++ {
-		idx := nsp[i]
-		nulls[idx] = true
-	}
-	return testutil.NewFunctionTestInput(types.T_varchar.ToType(), strs, nulls)
 }
 
 func TestEndsWith(t *testing.T) {
@@ -545,6 +544,66 @@ func TestFindInSet(t *testing.T) {
 	proc := testutil.NewProcess()
 	for _, tc := range testCases {
 		fcTC := testutil.NewFunctionTestCase(proc, tc.inputs, tc.expect, FindInSet)
+		s, info := fcTC.Run()
+		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
+	}
+}
+
+// INSTR
+func initInstrTestCase() []tcTemp {
+	cases := []struct {
+		strs    []string
+		substrs []string
+		wants   []int64
+	}{
+		{
+			strs:    []string{"abc", "abc", "abc", "abc", "abc"},
+			substrs: []string{"bc", "b", "abc", "a", "dca"},
+			wants:   []int64{2, 2, 1, 1, 0},
+		},
+		{
+			strs:    []string{"abc", "abc", "abc", "abc", "abc"},
+			substrs: []string{"", "", "a", "b", "c"},
+			wants:   []int64{1, 1, 1, 2, 3},
+		},
+		//TODO: @m-schen. Please fix these. Original code: https://github.com/m-schen/matrixone/blob/0c480ca11b6302de26789f916a3e2faca7f79d47/pkg/sql/plan/function/builtin/binary/instr_test.go#L43
+		//{
+		//	strs:    []string{"abc", "abc", "abc", "abc", "abc"},
+		//	substrs: []string{"bc"},
+		//	wants:   []int64{2, 2, 2, 2, 2},
+		//},
+		//{
+		//	strs:    []string{"abc"},
+		//	substrs: []string{"bc", "b", "abc", "a", "dca"},
+		//	wants:   []int64{2, 2, 1, 1, 0},
+		//},
+	}
+
+	var testInputs []tcTemp
+	for _, c := range cases {
+
+		testInputs = append(testInputs, tcTemp{
+
+			info: "test instr ",
+			inputs: []testutil.FunctionTestInput{
+				// Create a input entry <strs, substrs>
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), c.strs, []bool{}),
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), c.substrs, []bool{}),
+			},
+			expect: testutil.NewFunctionTestResult(types.T_int64.ToType(), false, c.wants, []bool{}),
+		})
+	}
+
+	return testInputs
+
+}
+
+func TestInstr(t *testing.T) {
+	testCases := initInstrTestCase()
+
+	proc := testutil.NewProcess()
+	for _, tc := range testCases {
+		fcTC := testutil.NewFunctionTestCase(proc, tc.inputs, tc.expect, Instr)
 		s, info := fcTC.Run()
 		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
 	}
