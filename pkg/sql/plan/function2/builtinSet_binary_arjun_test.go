@@ -1094,3 +1094,118 @@ func TestReplace(t *testing.T) {
 		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
 	}
 }
+
+// TRIM
+
+func initTrimTestCase() []tcTemp {
+	cases := []struct {
+		mode     string
+		input    string
+		trimWord string
+		output   string
+		info     string
+	}{
+
+		{
+			mode:     "both",
+			input:    "   hello world   ",
+			trimWord: " ",
+			output:   "hello world",
+		},
+		{
+			mode:     "leading",
+			input:    "   hello world   ",
+			trimWord: " ",
+			output:   "hello world   ",
+		},
+		{
+			mode:     "trailing",
+			input:    "   hello world   ",
+			trimWord: " ",
+			output:   "   hello world",
+		},
+		{
+			mode:     "both",
+			input:    "   hello world   ",
+			trimWord: "h",
+			output:   "   hello world   ",
+		},
+		{
+			mode:     "trailing",
+			input:    "   hello world",
+			trimWord: "d",
+			output:   "   hello worl",
+		},
+		{
+			mode:     "leading",
+			input:    "hello world   ",
+			trimWord: "h",
+			output:   "ello world   ",
+		},
+		{
+			mode:     "both",
+			input:    "嗷嗷0k七七",
+			trimWord: "七",
+			output:   "嗷嗷0k",
+		},
+		{
+			mode:     "leading",
+			input:    "嗷嗷0k七七",
+			trimWord: "七",
+			output:   "嗷嗷0k七七",
+		},
+		{
+			mode:     "trailing",
+			input:    "嗷嗷0k七七",
+			trimWord: "七",
+			output:   "嗷嗷0k",
+		},
+		{
+			mode:     "both",
+			input:    "嗷嗷0k七七",
+			trimWord: "k七七",
+			output:   "嗷嗷0",
+		},
+		{
+			mode:     "leading",
+			input:    "嗷嗷0k七七",
+			trimWord: "",
+			output:   "嗷嗷0k七七",
+		},
+		{
+			mode:     "trailing",
+			input:    "",
+			trimWord: "嗷嗷0k七七",
+			output:   "",
+		},
+	}
+
+	var testInputs []tcTemp
+	for _, c := range cases {
+
+		testInputs = append(testInputs, tcTemp{
+
+			info: "test trim ",
+			inputs: []testutil.FunctionTestInput{
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), []string{c.mode}, []bool{}),
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), []string{c.input}, []bool{}),
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), []string{c.trimWord}, []bool{}),
+			},
+			expect: testutil.NewFunctionTestResult(types.T_varchar.ToType(), false, []string{c.output}, []bool{}),
+		})
+	}
+
+	return testInputs
+
+}
+
+func TestTrim(t *testing.T) {
+	testCases := initTrimTestCase()
+
+	proc := testutil.NewProcess()
+	for _, tc := range testCases {
+		fcTC := testutil.NewFunctionTestCase(proc, tc.inputs, tc.expect, Trim)
+		s, info := fcTC.Run()
+		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
+	}
+}

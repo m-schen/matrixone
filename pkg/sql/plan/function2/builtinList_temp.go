@@ -3280,7 +3280,7 @@ var tempListForBinaryFunctions2 = []FuncNew{
 				retType: func(parameters []types.Type) types.Type {
 					return types.T_varchar.ToType()
 				},
-				NewOp: nil, //Trim,
+				NewOp: Trim,
 			},
 		},
 	},
