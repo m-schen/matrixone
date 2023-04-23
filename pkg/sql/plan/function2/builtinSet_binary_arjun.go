@@ -568,12 +568,6 @@ func TimestampDiff(ivecs []*vector.Vector, result vector.FunctionResultWrapper, 
 	return nil
 }
 
-// JSON_EXTRACT
-
-func JsonExtract(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
-	return nil
-}
-
 func Replace(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
 	p1 := vector.GenerateFunctionStrParameter(ivecs[0])
 	p2 := vector.GenerateFunctionStrParameter(ivecs[1])
@@ -607,14 +601,6 @@ func Replace(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *pro
 			}
 		}
 	}
-	return nil
-}
-
-func Serial(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
-	return nil
-}
-
-func SplitPart(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
 	return nil
 }
 
