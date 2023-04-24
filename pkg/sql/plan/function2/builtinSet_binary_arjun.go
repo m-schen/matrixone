@@ -753,3 +753,51 @@ func computeString(json []byte, paths []*bytejson.Path) (*bytejson.ByteJson, err
 	}
 	return bj.Query(paths), nil
 }
+
+// SPLIT PART
+
+func SplitPart(ivecs []*vector.Vector, result vector.FunctionResultWrapper, proc *process.Process, length int) (err error) {
+
+	p1 := vector.GenerateFunctionStrParameter(ivecs[0])
+	p2 := vector.GenerateFunctionStrParameter(ivecs[1])
+	p3 := vector.GenerateFunctionFixedTypeParameter[uint32](ivecs[2])
+	rs := vector.MustFunctionResult[types.Varlena](result)
+
+	for i := uint64(0); i < uint64(length); i++ {
+		v1, null1 := p1.GetStrValue(i)
+		v2, null2 := p2.GetStrValue(i)
+		v3, null3 := p3.GetValue(i)
+		if null1 || null2 || null3 {
+			if err = rs.AppendBytes(nil, true); err != nil {
+				return err
+			}
+		} else {
+
+			if v3 == 0 {
+				err = moerr.NewInvalidInput(proc.Ctx, "split_part: field contains non-positive integer")
+				return
+			}
+
+			// TODO: Please validate if this is correct based on the old code: https://github.com/m-schen/matrixone/blob/3b58fe39a4c233739a8d3b9cd4fcd562fa2a1568/pkg/sql/plan/function/builtin/multi/split_part.go#L70
+			res, isNull := SplitSingle(string(v1), string(v2), v3)
+			if isNull {
+				if err = rs.AppendBytes(nil, true); err != nil {
+					return err
+				}
+			}
+			if err = rs.AppendBytes([]byte(res), false); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func SplitSingle(str, sep string, cnt uint32) (string, bool) {
+	expectedLen := int(cnt + 1)
+	strSlice := strings.SplitN(str, sep, expectedLen)
+	if len(strSlice) < int(cnt) || strSlice[cnt-1] == "" {
+		return "", true
+	}
+	return strSlice[cnt-1], false
+}

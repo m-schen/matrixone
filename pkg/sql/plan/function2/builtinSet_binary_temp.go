@@ -845,10 +845,6 @@ func Serial(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *proc
 	return nil
 }
 
-func SplitPart(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
-	return nil
-}
-
 func DateFormat(ivecs []*vector.Vector, result vector.FunctionResultWrapper, proc *process.Process, length int) (err error) {
 	if !ivecs[1].IsConst() {
 		return moerr.NewInvalidArg(proc.Ctx, "date format format", "not constant")

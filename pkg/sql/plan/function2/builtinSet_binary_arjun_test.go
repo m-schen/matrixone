@@ -1337,3 +1337,43 @@ func TestJsonExtract(t *testing.T) {
 		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
 	}
 }
+
+// SPLIT PART
+
+func initSplitPart() []tcTemp {
+
+	//TODO: Need to validate testcases: https://github.com/m-schen/matrixone/blob/3b58fe39a4c233739a8d3b9cd4fcd562fa2a1568/pkg/sql/plan/function/builtin/multi/split_part_test.go#L50
+	// I have skipped the scalar testcases. Please add if it is relevant.
+	return []tcTemp{
+		{
+			info: "test split_part",
+			inputs: []testutil.FunctionTestInput{
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), []string{"a,b,c"}, []bool{}),
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), []string{","}, []bool{}),
+				testutil.NewFunctionTestInput(types.T_uint32.ToType(), []uint32{1}, []bool{}),
+			},
+			expect: testutil.NewFunctionTestResult(types.T_varchar.ToType(), false, []string{"a"}, []bool{}),
+		},
+		{
+			info: "test split_part Error",
+			inputs: []testutil.FunctionTestInput{
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), []string{"a,b,c"}, []bool{}),
+				testutil.NewFunctionTestInput(types.T_varchar.ToType(), []string{","}, []bool{}),
+				testutil.NewFunctionTestInput(types.T_uint32.ToType(), []uint32{0}, []bool{}),
+			},
+			expect: testutil.NewFunctionTestResult(types.T_varchar.ToType(), true, []string{"a"}, []bool{}),
+		},
+	}
+
+}
+
+func TestSplitPart(t *testing.T) {
+	testCases := initSplitPart()
+
+	proc := testutil.NewProcess()
+	for _, tc := range testCases {
+		fcTC := testutil.NewFunctionTestCase(proc, tc.inputs, tc.expect, SplitPart)
+		s, info := fcTC.Run()
+		require.True(t, s, fmt.Sprintf("case is '%s', err info is '%s'", tc.info, info))
+	}
+}
