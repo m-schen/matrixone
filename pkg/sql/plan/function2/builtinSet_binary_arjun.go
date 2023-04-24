@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
+	"github.com/matrixorigin/matrixone/pkg/container/bytejson"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/sql/plan/function2/function2Util"
@@ -672,4 +673,83 @@ func trimTrailing(src, cuts string) string {
 		src = src[:len(src)-len(cuts)]
 	}
 	return src
+}
+
+// JSON_EXTRACT
+
+func JsonExtract(ivecs []*vector.Vector, result vector.FunctionResultWrapper, _ *process.Process, length int) (err error) {
+
+	p1 := vector.GenerateFunctionStrParameter(ivecs[0])
+	p2 := vector.GenerateFunctionStrParameter(ivecs[1])
+	rs := vector.MustFunctionResult[types.Varlena](result)
+
+	for i := uint64(0); i < uint64(length); i++ {
+
+		jsonVec := ivecs[0]
+		var fn computeFn
+		switch jsonVec.GetType().Oid {
+		case types.T_json:
+			fn = computeJson
+		default:
+			fn = computeString
+		}
+
+		// Json Bytes
+		jsonBytes, jIsNull := p1.GetStrValue(i)
+		if jIsNull {
+			err = rs.AppendBytes(nil, true)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
+		// TODO: Validate. I am avoid multiple path arguments. Original code: https://github.com/m-schen/matrixone/blob/3b58fe39a4c233739a8d3b9cd4fcd562fa2a1568/pkg/sql/plan/function/builtin/multi/json_extract.go#L51
+		// Path Bytes
+		pathBytes, pIsNull := p2.GetStrValue(i)
+		if pIsNull {
+			err = rs.AppendBytes(nil, true)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		p, err := types.ParseStringToPath(string(pathBytes))
+		if err != nil {
+			return err
+		}
+
+		paths := make([]*bytejson.Path, 1)
+		paths[0] = &p
+		out, err := fn(jsonBytes, paths)
+
+		if out.IsNull() {
+			err := rs.AppendBytes(nil, true)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		dt, _ := out.Marshal()
+		err = rs.AppendBytes(dt, false)
+		if err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+type computeFn func([]byte, []*bytejson.Path) (*bytejson.ByteJson, error)
+
+func computeJson(json []byte, paths []*bytejson.Path) (*bytejson.ByteJson, error) {
+	bj := types.DecodeJson(json)
+	return bj.Query(paths), nil
+}
+func computeString(json []byte, paths []*bytejson.Path) (*bytejson.ByteJson, error) {
+	bj, err := types.ParseSliceToByteJson(json)
+	if err != nil {
+		return nil, err
+	}
+	return bj.Query(paths), nil
 }
