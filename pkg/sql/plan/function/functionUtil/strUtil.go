@@ -14,6 +14,8 @@
 
 package functionUtil
 
+import "encoding/hex"
+
 func RemoveEscapeChar(src []byte, escapeChar byte) []byte {
 	var target []byte
 	max := len(src)
@@ -24,4 +26,14 @@ func RemoveEscapeChar(src []byte, escapeChar byte) []byte {
 		target = append(target, src[i])
 	}
 	return target
+}
+
+// ReusedHexEncodeToBytes reference to hex.EncodeToString().
+func ReusedHexEncodeToBytes(src []byte, dst []byte) {
+	requireLen := hex.EncodedLen(len(src))
+	if cap(dst) < requireLen {
+		dst = make([]byte, requireLen)
+	}
+	dst = dst[:requireLen]
+	hex.Encode(dst, src)
 }

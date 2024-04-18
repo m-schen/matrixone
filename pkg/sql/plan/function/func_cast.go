@@ -447,8 +447,7 @@ func NewCast(parameters []*vector.Vector, result vector.FunctionResultWrapper, p
 		s := vector.GenerateFunctionFixedTypeParameter[types.Timestamp](from)
 		err = timestampToOthers(proc, s, *toType, result, length)
 	case types.T_char, types.T_varchar, types.T_binary, types.T_varbinary, types.T_blob, types.T_text:
-		s := vector.GenerateFunctionStrParameter(from)
-		err = strTypeToOthers(proc, s, *toType, result, length)
+		err = strTypeToOthers(proc, parameters, *toType, result, length)
 	case types.T_array_float32, types.T_array_float64:
 		//NOTE: Don't mix T_array and T_varchar.
 		// T_varchar will have "[1,2,3]" string
@@ -1558,9 +1557,36 @@ func decimal128ToOthers(ctx context.Context,
 }
 
 func strTypeToOthers(proc *process.Process,
-	source vector.FunctionParameterWrapper[types.Varlena],
+	parameters []*vector.Vector,
 	toType types.Type, result vector.FunctionResultWrapper, length int) error {
 	ctx := proc.Ctx
+
+	switch toType.Oid {
+	case types.T_bit:
+		return bytesToBit(ctx, parameters, result, int(toType.Width), length)
+	case types.T_int8:
+		return bytesToSigned[int8](ctx, parameters, result, 8, length)
+	case types.T_int16:
+		return bytesToSigned[int16](ctx, parameters, result, 16, length)
+	case types.T_int32:
+		return bytesToSigned[int32](ctx, parameters, result, 32, length)
+	case types.T_int64:
+		return bytesToSigned[int64](ctx, parameters, result, 64, length)
+	case types.T_uint8:
+		return bytesToUnsigned[uint8](ctx, parameters, result, 8, length)
+	case types.T_uint16:
+		return bytesToUnsigned[uint16](ctx, parameters, result, 16, length)
+	case types.T_uint32:
+		return bytesToUnsigned[uint32](ctx, parameters, result, 32, length)
+	case types.T_uint64:
+		return bytesToUnsigned[uint64](ctx, parameters, result, 64, length)
+	case types.T_float32:
+		return bytesToFloat[float32](ctx, parameters, result, length)
+	case types.T_float64:
+		return bytesToFloat[float64](ctx, parameters, result, length)
+	}
+
+	source := vector.GenerateFunctionStrParameter(parameters[0])
 
 	fromType := source.GetType()
 	if fromType.Oid == types.T_blob {
@@ -1581,40 +1607,8 @@ func strTypeToOthers(proc *process.Process,
 			// rest of the flow is similar to strTypeToOthers.
 		}
 	}
+
 	switch toType.Oid {
-	case types.T_bit:
-		rs := vector.MustFunctionResult[uint64](result)
-		return strToBit(ctx, source, rs, int(toType.Width), length)
-	case types.T_int8:
-		rs := vector.MustFunctionResult[int8](result)
-		return strToSigned(ctx, source, rs, 8, length)
-	case types.T_int16:
-		rs := vector.MustFunctionResult[int16](result)
-		return strToSigned(ctx, source, rs, 16, length)
-	case types.T_int32:
-		rs := vector.MustFunctionResult[int32](result)
-		return strToSigned(ctx, source, rs, 32, length)
-	case types.T_int64:
-		rs := vector.MustFunctionResult[int64](result)
-		return strToSigned(ctx, source, rs, 64, length)
-	case types.T_uint8:
-		rs := vector.MustFunctionResult[uint8](result)
-		return strToUnsigned(ctx, source, rs, 8, length)
-	case types.T_uint16:
-		rs := vector.MustFunctionResult[uint16](result)
-		return strToUnsigned(ctx, source, rs, 16, length)
-	case types.T_uint32:
-		rs := vector.MustFunctionResult[uint32](result)
-		return strToUnsigned(ctx, source, rs, 32, length)
-	case types.T_uint64:
-		rs := vector.MustFunctionResult[uint64](result)
-		return strToUnsigned(ctx, source, rs, 64, length)
-	case types.T_float32:
-		rs := vector.MustFunctionResult[float32](result)
-		return strToFloat(ctx, source, rs, 32, length)
-	case types.T_float64:
-		rs := vector.MustFunctionResult[float64](result)
-		return strToFloat(ctx, source, rs, 64, length)
 	case types.T_decimal64:
 		rs := vector.MustFunctionResult[types.Decimal64](result)
 		return strToDecimal64(source, rs, length)
@@ -1642,9 +1636,6 @@ func strTypeToOthers(proc *process.Process,
 	case types.T_timestamp:
 		rs := vector.MustFunctionResult[types.Timestamp](result)
 		zone := time.Local
-		if proc != nil {
-			zone = proc.SessionInfo.TimeZone
-		}
 		return strToTimestamp(source, rs, zone, length)
 	case types.T_char, types.T_varchar, types.T_text,
 		types.T_binary, types.T_varbinary, types.T_blob:
@@ -4351,7 +4342,7 @@ func strToArray[T types.RealNumbers](
 	for i = 0; i < l; i++ {
 		v, null := from.GetStrValue(i)
 		if null || len(v) == 0 {
-			if err := to.AppendBytes(nil, true); err != nil {
+			if err := to.AppendMustNullForBytesResult(); err != nil {
 				return err
 			}
 		} else {
@@ -4360,7 +4351,7 @@ func strToArray[T types.RealNumbers](
 			if err != nil {
 				return err
 			}
-			if err = to.AppendBytes(b, false); err != nil {
+			if err = to.AppendMustBytesValue(b); err != nil {
 				return err
 			}
 		}
@@ -4373,7 +4364,7 @@ func blobToArray[T types.RealNumbers](
 	from vector.FunctionParameterWrapper[types.Varlena],
 	to *vector.FunctionResult[types.Varlena], length int, _ types.Type) error {
 
-	toType := to.GetType()
+	requireWidth := int(to.GetType().Width)
 
 	var i uint64
 	var l = uint64(length)
@@ -4381,16 +4372,16 @@ func blobToArray[T types.RealNumbers](
 
 		v, null := from.GetStrValue(i)
 		if null || len(v) == 0 {
-			if err := to.AppendBytes(nil, true); err != nil {
+			if err := to.AppendMustNullForBytesResult(); err != nil {
 				return err
 			}
 		} else {
 			arr := types.BytesToArray[T](v)
-			if int(toType.Width) != len(arr) {
-				return moerr.NewArrayDefMismatchNoCtx(int(toType.Width), len(arr))
+			if requireWidth != len(arr) {
+				return moerr.NewArrayDefMismatchNoCtx(requireWidth, len(arr))
 			}
 
-			if err := to.AppendBytes(v, false); err != nil {
+			if err := to.AppendMustBytesValue(v); err != nil {
 				return err
 			}
 		}
