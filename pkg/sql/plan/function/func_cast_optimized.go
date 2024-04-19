@@ -22,11 +22,23 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/sql/plan/function/functionUtil"
+	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"golang.org/x/exp/constraints"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 )
+
+func nullToOthers(
+	from []*vector.Vector, to vector.FunctionResultWrapper, proc *process.Process, length int,
+	) error {
+
+	to.Free()
+	resultType := from[1].GetType()
+
+	to.SetResultVector(vector.NewConstNull(*resultType, length, proc.Mp()))
+	return nil
+}
 
 func bytesToJson(
 	from []*vector.Vector, to vector.FunctionResultWrapper,
@@ -170,7 +182,7 @@ func bytesToFloat[T constraints.Float](
 	length int) error {
 
 	isBinary := from[0].GetIsBin()
-	resultType := to.GetResultVector().GetType()
+	resultType := from[1].GetType()
 
 	fixedFloat64c, isFixFloat := functionUtil.NewFixedFloat64Convert(int(resultType.Scale), int(resultType.Width))
 
@@ -239,7 +251,7 @@ func bytesToDecimal64(
 	from []*vector.Vector, to vector.FunctionResultWrapper,
 	length int) error {
 
-	resultType := to.GetResultVector().GetType()
+	resultType := from[1].GetType()
 	isBinary := to.GetResultVector().GetIsBin()
 	width, scale := resultType.Width, resultType.Scale
 
@@ -261,7 +273,7 @@ func bytesToDecimal128(
 	from []*vector.Vector, to vector.FunctionResultWrapper,
 	length int) error {
 
-	resultType := to.GetResultVector().GetType()
+	resultType := from[1].GetType()
 	isBinary := to.GetResultVector().GetIsBin()
 	width, scale := resultType.Width, resultType.Scale
 

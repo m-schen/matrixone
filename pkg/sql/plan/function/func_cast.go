@@ -391,7 +391,7 @@ func NewCast(parameters []*vector.Vector, result vector.FunctionResultWrapper, p
 	from := parameters[0]
 	switch fromType.Oid {
 	case types.T_any: // scalar null
-		err = scalarNullToOthers(proc.Ctx, *toType, result, length)
+		err = nullToOthers(parameters, result, proc, length)
 	case types.T_bool:
 		s := vector.GenerateFunctionFixedTypeParameter[bool](from)
 		err = boolToOthers(proc.Ctx, s, *toType, result, length)
