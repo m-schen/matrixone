@@ -1559,9 +1559,59 @@ func decimal128ToOthers(ctx context.Context,
 func strTypeToOthers(proc *process.Process,
 	parameters []*vector.Vector,
 	toType types.Type, result vector.FunctionResultWrapper, length int) error {
+
 	ctx := proc.Ctx
+	fromType := parameters[0].GetType()
+
+	// special cases need to handle first.
+	if fromType.Oid == types.T_blob {
+		source := vector.GenerateFunctionStrParameter(parameters[0])
+
+		// For handling BLOB to ARRAY implicit casting.
+		// This is used for VECTOR FAST/BINARY IO.
+		// SQL: insert into t2 values(2, decode("7e98b23e9e10383b2f41133f", "hex"));
+		switch toType.Oid {
+		case types.T_array_float32:
+			rs := vector.MustFunctionResult[types.Varlena](result)
+			return blobToArray[float32](ctx, source, rs, length, toType)
+		case types.T_array_float64:
+			rs := vector.MustFunctionResult[types.Varlena](result)
+			return blobToArray[float64](ctx, source, rs, length, toType)
+			// NOTE 1: don't add `switch default` and panic here. If `T_blob` to `ARRAY` is not required,
+			// then continue to the `str` to `Other` code.
+			// NOTE 2: don't create a switch T_blob case in NewCast() as
+			// we only want to handle BLOB-->ARRAY condition separately and
+			// rest of the flow is similar to strTypeToOthers.
+		}
+	}
 
 	switch toType.Oid {
+	case types.T_bool:
+		return opUnaryStrToFixedWithErrorCheck[bool](parameters, result, nil, length, types.ParseBool)
+	case types.T_uuid:
+		return opUnaryStrToFixedWithErrorCheck[types.Uuid](parameters, result, nil, length, types.ParseUuid)
+	case types.T_date:
+		return opUnaryStrToFixedWithErrorCheck[types.Date](parameters, result, nil, length, types.ParseDateCast)
+	case types.T_datetime:
+		resultScale := toType.Scale
+		return opUnaryStrToFixedWithErrorCheck[types.Datetime](parameters, result, nil, length, func(v string) (types.Datetime, error) {
+			return types.ParseDatetime(v, resultScale)
+		})
+	case types.T_time:
+		resultScale := toType.Scale
+		return opUnaryStrToFixedWithErrorCheck[types.Time](parameters, result, nil, length, func(v string) (types.Time, error) {
+			return types.ParseTime(v, resultScale)
+		})
+	case types.T_timestamp:
+		zone := time.Local
+		resultScale := toType.Scale
+		return opUnaryStrToFixedWithErrorCheck[types.Timestamp](parameters, result, nil, length, func(v string) (types.Timestamp, error) {
+			return types.ParseTimestamp(zone, v, resultScale)
+		})
+	case types.T_array_float32:
+		return opUnaryBytesToBytes(parameters, result, nil, length, types.BytesToArrayToBytes[float32])
+	case types.T_array_float64:
+		return opUnaryBytesToBytes(parameters, result, nil, length, types.BytesToArrayToBytes[float64])
 	case types.T_bit:
 		return bytesToBit(ctx, parameters, result, int(toType.Width), length)
 	case types.T_int8:
@@ -1584,71 +1634,18 @@ func strTypeToOthers(proc *process.Process,
 		return bytesToFloat[float32](ctx, parameters, result, length)
 	case types.T_float64:
 		return bytesToFloat[float64](ctx, parameters, result, length)
-	}
-
-	source := vector.GenerateFunctionStrParameter(parameters[0])
-
-	fromType := source.GetType()
-	if fromType.Oid == types.T_blob {
-		// For handling BLOB to ARRAY implicit casting.
-		// This is used for VECTOR FAST/BINARY IO.
-		// SQL: insert into t2 values(2, decode("7e98b23e9e10383b2f41133f", "hex"));
-		switch toType.Oid {
-		case types.T_array_float32:
-			rs := vector.MustFunctionResult[types.Varlena](result)
-			return blobToArray[float32](ctx, source, rs, length, toType)
-		case types.T_array_float64:
-			rs := vector.MustFunctionResult[types.Varlena](result)
-			return blobToArray[float64](ctx, source, rs, length, toType)
-			// NOTE 1: don't add `switch default` and panic here. If `T_blob` to `ARRAY` is not required,
-			// then continue to the `str` to `Other` code.
-			// NOTE 2: don't create a switch T_blob case in NewCast() as
-			// we only want to handle BLOB-->ARRAY condition separately and
-			// rest of the flow is similar to strTypeToOthers.
-		}
-	}
-
-	switch toType.Oid {
 	case types.T_decimal64:
-		rs := vector.MustFunctionResult[types.Decimal64](result)
-		return strToDecimal64(source, rs, length)
+		return bytesToDecimal64(ctx, parameters, result, length)
 	case types.T_decimal128:
-		rs := vector.MustFunctionResult[types.Decimal128](result)
-		return strToDecimal128(source, rs, length)
-	case types.T_bool:
-		rs := vector.MustFunctionResult[bool](result)
-		return strToBool(source, rs, length)
-	case types.T_json:
-		rs := vector.MustFunctionResult[types.Varlena](result)
-		return strToJson(source, rs, length)
-	case types.T_uuid:
-		rs := vector.MustFunctionResult[types.Uuid](result)
-		return strToUuid(source, rs, length)
-	case types.T_date:
-		rs := vector.MustFunctionResult[types.Date](result)
-		return strToDate(source, rs, length)
-	case types.T_datetime:
-		rs := vector.MustFunctionResult[types.Datetime](result)
-		return strToDatetime(source, rs, length)
-	case types.T_time:
-		rs := vector.MustFunctionResult[types.Time](result)
-		return strToTime(source, rs, length)
-	case types.T_timestamp:
-		rs := vector.MustFunctionResult[types.Timestamp](result)
-		zone := time.Local
-		return strToTimestamp(source, rs, zone, length)
+		return bytesToDecimal128(ctx, parameters, result, length)
 	case types.T_char, types.T_varchar, types.T_text,
 		types.T_binary, types.T_varbinary, types.T_blob:
-		rs := vector.MustFunctionResult[types.Varlena](result)
-		return strToStr(ctx, source, rs, length, toType)
-	case types.T_array_float32:
-		rs := vector.MustFunctionResult[types.Varlena](result)
-		return strToArray[float32](ctx, source, rs, length, toType)
-	case types.T_array_float64:
-		rs := vector.MustFunctionResult[types.Varlena](result)
-		return strToArray[float64](ctx, source, rs, length, toType)
+		return bytesToBytes(ctx, parameters, result, length)
+	case types.T_json:
+		return bytesToJson(parameters, result, length)
 	}
-	return moerr.NewInternalError(ctx, fmt.Sprintf("unsupported cast from %s to %s", source.GetType(), toType))
+
+	return moerr.NewInternalError(ctx, fmt.Sprintf("unsupported cast from %s to %s", fromType, toType))
 }
 
 func arrayTypeToOthers(proc *process.Process,

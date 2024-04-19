@@ -115,6 +115,11 @@ func StringToArrayToBytes[T RealNumbers](input string) ([]byte, error) {
 	return ArrayToBytes[T](a), nil
 }
 
+func BytesToArrayToBytes[T RealNumbers](input []byte) []byte {
+	a := BytesToArray[T](input)
+	return ArrayToBytes[T](a)
+}
+
 func BytesToArrayToString[T RealNumbers](input []byte) string {
 	// Convert []byte{11, 33, 45, 56,.....} --> []float32{1.0, 2.0, 3.0}
 	a := BytesToArray[T](input)
