@@ -15,6 +15,7 @@
 package aggexec
 
 import (
+	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/nulls"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
@@ -24,9 +25,14 @@ const (
 	resultElementRowSize = 32768 // 2^15
 )
 
+var (
+	aggEmptiesType = types.T_bool.ToType()
+)
+
 type aggBasicCommonResult struct {
 	// where to allocate and release memory.
 	mg AggMemoryManager
+	mp *mpool.MPool
 
 	// agg result type.
 	typ types.Type
@@ -47,6 +53,22 @@ type aggBasicCommonResult struct {
 	idx1, idx2 int
 	// quickEmpty is the pointer of empties, for quick get and set from empties.
 	quickEmpty [][]bool
+}
+
+func (r *aggBasicCommonResult) init(
+	mg AggMemoryManager, resultType types.Type, isEmptyGroupToBeNull bool) {
+	r.typ = resultType
+	r.setNullToEmptyGroup = isEmptyGroupToBeNull
+	r.length, r.capacity = 0, 0
+	r.mg = mg
+
+	r.results = make([]*vector.Vector, 1)
+	r.empties = make([]*vector.Vector, 1)
+	if r.mg == nil {
+		return
+	}
+
+	r.mp = mg.Mp()
 }
 
 // groupNumber starts from 0.
@@ -99,6 +121,64 @@ func safeCleanVectors(mg AggMemoryManager, vectors []*vector.Vector) {
 	}
 }
 
+func (r *aggBasicCommonResult) getEncodedAggResult() (EncodeAggResult, error) {
+	e := EncodeAggResult{
+		Length:   int64(r.length),
+		Capacity: int64(r.capacity),
+		Results:  make([][]byte, len(r.results)),
+		Empties:  make([][]byte, len(r.empties)),
+	}
+
+	// set result.
+	var err error
+	for i := range e.Results {
+		if e.Results[i], err = r.results[i].MarshalBinary(); err != nil {
+			return e, err
+		}
+	}
+	for i := range e.Empties {
+		if e.Empties[i], err = r.empties[i].MarshalBinary(); err != nil {
+			return e, err
+		}
+	}
+	return e, nil
+}
+
+func (r *aggBasicCommonResult) decodeFromEncodedAggResult(e *EncodeAggResult) error {
+	r.length, r.capacity = int(e.Length), int(e.Capacity)
+
+	var err error = nil
+	defer func() {
+		if err != nil {
+			r.free()
+		}
+	}()
+
+	var mp *mpool.MPool = nil
+	if r.mg != nil {
+		mp = r.mg.Mp()
+	}
+
+	r.results = make([]*vector.Vector, len(r.results))
+	for i := range r.results {
+		r.results[i] = vector.NewVec(r.typ)
+		if err = vectorUnmarshal(r.results[i], e.Results[i], mp); err != nil {
+			return err
+		}
+	}
+
+	r.empties = make([]*vector.Vector, len(r.empties))
+	r.quickEmpty = make([][]bool, len(r.empties))
+	for i := range r.empties {
+		r.empties[i] = vector.NewVec(r.typ)
+		if err = vectorUnmarshal(r.empties[i], e.Empties[i], mp); err != nil {
+			return err
+		}
+		r.quickEmpty[i] = vector.MustFixedCol[bool](r.empties[i])
+	}
+	return nil
+}
+
 func (r *aggBasicCommonResult) setGroupNumber(groupNumber int) {
 	r.idx1, r.idx2 = getIdx1Idx2(groupNumber)
 }
@@ -123,7 +203,16 @@ func (r *aggBasicCommonResult) preAllocate(more int) (err error) {
 	if more == 0 {
 		return
 	}
-	mp := r.mg.Mp()
+	mp := r.mp
+	if mp == nil {
+		panic("cannot allocate memory for agg without any mpool.")
+	}
+
+	// 0. if the result and empties are nil, init them first.
+	if len(r.results) == 0 {
+		r.results[0] = r.mg.GetVector(r.typ)
+		r.empties[0] = r.mg.GetVector(aggEmptiesType)
+	}
 
 	// 1. append the last element if the last element is not full.
 	srcLastIndex := len(r.results) - 1
@@ -155,7 +244,7 @@ func (r *aggBasicCommonResult) preAllocate(more int) (err error) {
 
 		for i := 0; i < fixedVectorNumber; i++ {
 			r.results = append(r.results, r.mg.GetVector(r.typ))
-			r.empties = append(r.results, r.mg.GetVector(types.T_bool.ToType()))
+			r.empties = append(r.results, r.mg.GetVector(aggEmptiesType))
 
 			if err = r.results[len(r.results)-1].PreExtend(resultElementRowSize, mp); err != nil {
 				return err
@@ -169,7 +258,7 @@ func (r *aggBasicCommonResult) preAllocate(more int) (err error) {
 
 		if nonFixedRowNumber > 0 {
 			r.results = append(r.results, r.mg.GetVector(r.typ))
-			r.empties = append(r.results, r.mg.GetVector(types.T_bool.ToType()))
+			r.empties = append(r.results, r.mg.GetVector(aggEmptiesType))
 
 			if err = r.results[len(r.results)-1].PreExtend(nonFixedRowNumber, mp); err != nil {
 				return err
@@ -243,6 +332,7 @@ func (r *aggBasicCommonResult) free() {
 	safeCleanVectors(r.mg, r.empties)
 }
 
+// agg result which was a fixed-length type.
 type aggFixedTypeResult[T types.FixedSizeTExceptStrType] struct {
 	aggBasicCommonResult
 	requireInit    bool
@@ -250,6 +340,56 @@ type aggFixedTypeResult[T types.FixedSizeTExceptStrType] struct {
 
 	// quickValue is the pointer of results, for quick get and set from aggBasicCommonResult.results.
 	quickValue [][]T
+}
+
+func makeAggFixedTypeResult1[T types.FixedSizeTExceptStrType](
+	mg AggMemoryManager, typ types.Type, setNullToEmptyGroup bool) aggFixedTypeResult[T] {
+	r := aggFixedTypeResult[T]{}
+	r.init(mg, typ, setNullToEmptyGroup)
+	r.requireInit = false
+	return r
+}
+
+func makeAggFixedTypeResult2[T types.FixedSizeTExceptStrType](
+	mg AggMemoryManager, typ types.Type, setNullToEmptyGroup bool, defaultValue T) aggFixedTypeResult[T] {
+	r := aggFixedTypeResult[T]{}
+	r.init(mg, typ, setNullToEmptyGroup)
+	r.requireInit = true
+	r.requiredResult = defaultValue
+	return r
+}
+
+func (r *aggFixedTypeResult[T]) marshal() ([]byte, error) {
+	encoded, err := r.getEncodedAggResult()
+	if err != nil {
+		return nil, err
+	}
+	encoded.RequireInitResult = r.requireInit
+	if r.requireInit {
+		encoded.RequiredResult = types.EncodeFixed[T](r.requiredResult)
+	}
+	return encoded.Marshal()
+}
+
+func (r *aggFixedTypeResult[T]) unmarshal(data []byte) error {
+	encoded := &EncodeAggResult{}
+	if err := encoded.Unmarshal(data); err != nil {
+		return err
+	}
+
+	if err := r.aggBasicCommonResult.decodeFromEncodedAggResult(encoded); err != nil {
+		return err
+	}
+	r.requireInit = encoded.RequireInitResult
+	if r.requireInit {
+		r.requiredResult = types.DecodeFixed[T](encoded.RequiredResult)
+	}
+
+	r.quickValue = make([][]T, len(r.aggBasicCommonResult.results))
+	for i := range r.quickValue {
+		r.quickValue[i] = vector.MustFixedCol[T](r.aggBasicCommonResult.results[i])
+	}
+	return nil
 }
 
 func (r *aggFixedTypeResult[T]) grows(more int) error {
@@ -284,10 +424,55 @@ func (r *aggFixedTypeResult[T]) getAggResultByInnerIdx() T {
 	return r.quickValue[r.idx1][r.idx2]
 }
 
+// agg result which was a var-length type.
 type aggBytesTypeResult struct {
 	aggBasicCommonResult
 	requireInit    bool
 	requiredResult []byte
+}
+
+func makeAggBytesTypeResult1(
+	mg AggMemoryManager, typ types.Type, setNullToEmptyGroup bool) aggBytesTypeResult {
+	r := aggBytesTypeResult{}
+	r.init(mg, typ, setNullToEmptyGroup)
+	r.requireInit = false
+	r.requiredResult = nil
+	return r
+}
+
+func makeAggBytesTypeResult2(
+	mg AggMemoryManager, typ types.Type, setNullToEmptyGroup bool, defaultValue []byte) aggBytesTypeResult {
+	r := aggBytesTypeResult{}
+	r.init(mg, typ, setNullToEmptyGroup)
+	r.requireInit = true
+	r.requiredResult = defaultValue
+	return r
+}
+
+func (r *aggBytesTypeResult) marshal() ([]byte, error) {
+	encoded, err := r.getEncodedAggResult()
+	if err != nil {
+		return nil, err
+	}
+	encoded.RequireInitResult = r.requireInit
+	if r.requireInit {
+		encoded.RequiredResult = r.requiredResult
+	}
+	return encoded.Marshal()
+}
+
+func (r *aggBytesTypeResult) unmarshal(data []byte) error {
+	encoded := &EncodeAggResult{}
+	if err := encoded.Unmarshal(data); err != nil {
+		return err
+	}
+
+	if err := r.aggBasicCommonResult.decodeFromEncodedAggResult(encoded); err != nil {
+		return err
+	}
+	r.requiredResult = encoded.RequiredResult
+	r.requireInit = encoded.RequireInitResult
+	return nil
 }
 
 func (r *aggBytesTypeResult) grows(more int) error {
@@ -297,7 +482,7 @@ func (r *aggBytesTypeResult) grows(more int) error {
 		return err
 	}
 
-	mp := r.mg.Mp()
+	mp := r.mp
 	lastIndex, lastRow := getIdx1Idx2(oldLength)
 	lastVec := r.results[lastIndex]
 
@@ -332,4 +517,22 @@ func (r *aggBytesTypeResult) grows(more int) error {
 	}
 
 	return nil
+}
+
+func (r *aggBytesTypeResult) getAggResultByIdx(group int) []byte {
+	idx1, idx2 := getIdx1Idx2(group)
+	return r.results[idx1].GetBytesAt(idx2)
+}
+
+func (r *aggBytesTypeResult) setAggResultByIdx(group int, v []byte) error {
+	idx1, idx2 := getIdx1Idx2(group)
+	return vector.SetBytesAt(r.results[idx1], idx2, v, r.mp)
+}
+
+func (r *aggBytesTypeResult) setAggResultByInnerIdx(v []byte) error {
+	return vector.SetBytesAt(r.results[r.idx1], r.idx2, v, r.mp)
+}
+
+func (r *aggBytesTypeResult) getAggResultByInnerIdx() []byte {
+	return r.results[r.idx1].GetBytesAt(r.idx2)
 }
