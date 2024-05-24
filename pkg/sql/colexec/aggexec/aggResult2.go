@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	resultElementRowSize = 32768 // 2^15
+	resultElementRowSize = 131072 // 2^17
 )
 
 var (
