@@ -193,9 +193,23 @@ func (r *aggBasicCommonResult) isEmpty(groupIndex int) bool {
 	return r.quickEmpty[i][j]
 }
 
+func (r *aggBasicCommonResult) isEmptyFromInnerGroup() bool {
+	return r.quickEmpty[r.idx1][r.idx2]
+}
+
+func (r *aggBasicCommonResult) setNotEmptyFromInnerGroup() {
+	r.quickEmpty[r.idx1][r.idx2] = false
+}
+
 func (r *aggBasicCommonResult) setNotEmpty(groupIndex int) {
 	i, j := getIdx1Idx2(groupIndex)
 	r.quickEmpty[i][j] = false
+}
+
+func (r *aggBasicCommonResult) mergeEmpty(other *aggBasicCommonResult, i, j int) {
+	idx1, idx2 := getIdx1Idx2(i)
+	idx3, idx4 := getIdx1Idx2(j)
+	r.quickEmpty[idx1][idx2] = r.quickEmpty[idx1][idx2] && other.quickEmpty[idx3][idx4]
 }
 
 // extend related.
@@ -320,6 +334,12 @@ func (r *aggBasicCommonResult) flushOnePart() *vector.Vector {
 		r.empties = nil
 	}
 
+	r.length -= result.Length()
+	if len(r.results) == 0 {
+		r.capacity = 0
+	} else {
+		r.capacity -= result.Length()
+	}
 	return result
 }
 
@@ -406,21 +426,21 @@ func (r *aggFixedTypeResult[T]) grows(more int) error {
 	return nil
 }
 
-func (r *aggFixedTypeResult[T]) getAggResultByIdx(group int) T {
+func (r *aggFixedTypeResult[T]) getAggResultFromIdx(group int) T {
 	idx1, idx2 := getIdx1Idx2(group)
 	return r.quickValue[idx1][idx2]
 }
 
-func (r *aggFixedTypeResult[T]) setAggResultByIdx(group int, v T) {
+func (r *aggFixedTypeResult[T]) setAggResultFromIdx(group int, v T) {
 	idx1, idx2 := getIdx1Idx2(group)
 	r.quickValue[idx1][idx2] = v
 }
 
-func (r *aggFixedTypeResult[T]) setAggResultByInnerIdx(v T) {
+func (r *aggFixedTypeResult[T]) setAggResultFromInnerIdx(v T) {
 	r.quickValue[r.idx1][r.idx2] = v
 }
 
-func (r *aggFixedTypeResult[T]) getAggResultByInnerIdx() T {
+func (r *aggFixedTypeResult[T]) getAggResultFromInnerIdx() T {
 	return r.quickValue[r.idx1][r.idx2]
 }
 
@@ -519,20 +539,20 @@ func (r *aggBytesTypeResult) grows(more int) error {
 	return nil
 }
 
-func (r *aggBytesTypeResult) getAggResultByIdx(group int) []byte {
+func (r *aggBytesTypeResult) getAggResultFromIdx(group int) []byte {
 	idx1, idx2 := getIdx1Idx2(group)
 	return r.results[idx1].GetBytesAt(idx2)
 }
 
-func (r *aggBytesTypeResult) setAggResultByIdx(group int, v []byte) error {
+func (r *aggBytesTypeResult) setAggResultFromIdx(group int, v []byte) error {
 	idx1, idx2 := getIdx1Idx2(group)
 	return vector.SetBytesAt(r.results[idx1], idx2, v, r.mp)
 }
 
-func (r *aggBytesTypeResult) setAggResultByInnerIdx(v []byte) error {
+func (r *aggBytesTypeResult) setAggResultFromInnerIdx(v []byte) error {
 	return vector.SetBytesAt(r.results[r.idx1], r.idx2, v, r.mp)
 }
 
-func (r *aggBytesTypeResult) getAggResultByInnerIdx() []byte {
+func (r *aggBytesTypeResult) getAggResultFromInnerIdx() []byte {
 	return r.results[r.idx1].GetBytesAt(r.idx2)
 }
