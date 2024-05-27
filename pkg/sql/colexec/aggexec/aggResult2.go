@@ -22,7 +22,8 @@ import (
 )
 
 const (
-	resultElementRowSize = 131072 // 2^17
+	// 131072 = 2^17
+	resultElementRowSize = 131072
 )
 
 var (
@@ -170,7 +171,7 @@ func (r *aggBasicCommonResult) decodeFromEncodedAggResult(e *EncodeAggResult) er
 	r.empties = make([]*vector.Vector, len(r.empties))
 	r.quickEmpty = make([][]bool, len(r.empties))
 	for i := range r.empties {
-		r.empties[i] = vector.NewVec(r.typ)
+		r.empties[i] = vector.NewVec(aggEmptiesType)
 		if err = vectorUnmarshal(r.empties[i], e.Empties[i], mp); err != nil {
 			return err
 		}
@@ -223,9 +224,11 @@ func (r *aggBasicCommonResult) preAllocate(more int) (err error) {
 	}
 
 	// 0. if the result and empties are nil, init them first.
-	if len(r.results) == 0 {
+	if r.results[0] == nil || r.empties[0] == nil {
 		r.results[0] = r.mg.GetVector(r.typ)
 		r.empties[0] = r.mg.GetVector(aggEmptiesType)
+		r.capacity = 0
+		r.length = 0
 	}
 
 	// 1. append the last element if the last element is not full.
@@ -258,7 +261,7 @@ func (r *aggBasicCommonResult) preAllocate(more int) (err error) {
 
 		for i := 0; i < fixedVectorNumber; i++ {
 			r.results = append(r.results, r.mg.GetVector(r.typ))
-			r.empties = append(r.results, r.mg.GetVector(aggEmptiesType))
+			r.empties = append(r.empties, r.mg.GetVector(aggEmptiesType))
 
 			if err = r.results[len(r.results)-1].PreExtend(resultElementRowSize, mp); err != nil {
 				return err
@@ -272,7 +275,7 @@ func (r *aggBasicCommonResult) preAllocate(more int) (err error) {
 
 		if nonFixedRowNumber > 0 {
 			r.results = append(r.results, r.mg.GetVector(r.typ))
-			r.empties = append(r.results, r.mg.GetVector(aggEmptiesType))
+			r.empties = append(r.empties, r.mg.GetVector(aggEmptiesType))
 
 			if err = r.results[len(r.results)-1].PreExtend(nonFixedRowNumber, mp); err != nil {
 				return err
@@ -298,7 +301,7 @@ func (r *aggBasicCommonResult) extend(more int) (err error) {
 	}
 
 	// set quick empty from old length to new length.
-	r.quickEmpty = updateQuickVs(r.quickEmpty, r.empties, true)
+	r.quickEmpty = updateQuickVs[bool](r.quickEmpty, r.empties, true)
 
 	r.length = need
 	return nil
@@ -421,7 +424,7 @@ func (r *aggFixedTypeResult[T]) grows(more int) error {
 	if r.requireInit {
 		v = r.requiredResult
 	}
-	r.quickValue = updateQuickVs(r.quickValue, r.results, v)
+	r.quickValue = updateQuickVs[T](r.quickValue, r.results, v)
 
 	return nil
 }
