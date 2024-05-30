@@ -17,6 +17,7 @@ package compile
 import (
 	"context"
 	"fmt"
+
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/productl2"
 
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/shufflebuild"
@@ -42,6 +43,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/dispatch"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/external"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/fill"
+	"github.com/matrixorigin/matrixone/pkg/sql/colexec/filter"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/fuzzyfilter"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/group"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/hashbuild"
@@ -77,7 +79,6 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/preinsertunique"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/product"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/projection"
-	"github.com/matrixorigin/matrixone/pkg/sql/colexec/restrict"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/right"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/rightanti"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/rightsemi"
@@ -280,9 +281,9 @@ func dupInstruction(sourceIns *vm.Instruction, regMap map[*process.WaitRegister]
 		arg := projection.NewArgument()
 		arg.Es = t.Es
 		res.Arg = arg
-	case vm.Restrict:
-		t := sourceIns.Arg.(*restrict.Argument)
-		arg := restrict.NewArgument()
+	case vm.Filter:
+		t := sourceIns.Arg.(*filter.Argument)
+		arg := filter.NewArgument()
 		arg.E = t.E
 		res.Arg = arg
 	case vm.Semi:
@@ -500,14 +501,14 @@ func dupInstruction(sourceIns *vm.Instruction, regMap map[*process.WaitRegister]
 	return res
 }
 
-func constructRestrict(n *plan.Node, filterExpr *plan2.Expr) *restrict.Argument {
-	arg := restrict.NewArgument()
+func constructRestrict(n *plan.Node, filterExpr *plan2.Expr) *filter.Argument {
+	arg := filter.NewArgument()
 	arg.E = filterExpr
 	arg.IsEnd = n.IsEnd
 	return arg
 }
 
-func constructDeletion(n *plan.Node, eg engine.Engine, proc *process.Process) (*deletion.Argument, error) {
+func constructDeletion(n *plan.Node, eg engine.Engine) (*deletion.Argument, error) {
 	oldCtx := n.DeleteCtx
 	delCtx := &deletion.DeleteCtx{
 		Ref:                   oldCtx.Ref,
@@ -518,28 +519,7 @@ func constructDeletion(n *plan.Node, eg engine.Engine, proc *process.Process) (*
 		PartitionTableNames:   oldCtx.PartitionTableNames,
 		PartitionIndexInBatch: int(oldCtx.PartitionIdx),
 		PrimaryKeyIdx:         int(oldCtx.PrimaryKeyIdx),
-	}
-	// get the relation instance of the original table
-	rel, _, err := getRel(proc.Ctx, proc, eg, oldCtx.Ref, nil)
-	if err != nil {
-		return nil, err
-	}
-	delCtx.Source = rel
-	if len(oldCtx.PartitionTableNames) > 0 {
-		dbSource, err := eg.Database(proc.Ctx, oldCtx.Ref.SchemaName, proc.TxnOperator)
-		if err != nil {
-			return nil, err
-		}
-
-		delCtx.PartitionSources = make([]engine.Relation, len(oldCtx.PartitionTableNames))
-		// get the relation instances for each partition sub table
-		for i, pTableName := range oldCtx.PartitionTableNames {
-			pRel, err := dbSource.Relation(proc.Ctx, pTableName, proc)
-			if err != nil {
-				return nil, err
-			}
-			delCtx.PartitionSources[i] = pRel
-		}
+		Engine:                eg,
 	}
 
 	arg := deletion.NewArgument()
@@ -673,48 +653,24 @@ func constructLockOp(n *plan.Node, eng engine.Engine) (*lockop.Argument, error) 
 	return arg, nil
 }
 
-func constructInsert(n *plan.Node, eg engine.Engine, proc *process.Process) (*insert.Argument, error) {
+func constructInsert(n *plan.Node, eg engine.Engine) (*insert.Argument, error) {
 	oldCtx := n.InsertCtx
-	ctx := proc.Ctx
-
 	var attrs []string
 	for _, col := range oldCtx.TableDef.Cols {
 		if col.Name != catalog.Row_ID {
 			attrs = append(attrs, col.Name)
 		}
 	}
-	originRel, _, err := getRel(ctx, proc, eg, oldCtx.Ref, nil)
-	if err != nil {
-		return nil, err
-	}
 	newCtx := &insert.InsertCtx{
 		Ref:                   oldCtx.Ref,
 		AddAffectedRows:       oldCtx.AddAffectedRows,
-		Rel:                   originRel,
+		Engine:                eg,
 		Attrs:                 attrs,
 		PartitionTableIDs:     oldCtx.PartitionTableIds,
 		PartitionTableNames:   oldCtx.PartitionTableNames,
 		PartitionIndexInBatch: int(oldCtx.PartitionIdx),
 		TableDef:              oldCtx.TableDef,
 	}
-
-	if len(oldCtx.PartitionTableNames) > 0 {
-		dbSource, err := eg.Database(proc.Ctx, oldCtx.Ref.SchemaName, proc.TxnOperator)
-		if err != nil {
-			return nil, err
-		}
-
-		newCtx.PartitionSources = make([]engine.Relation, len(oldCtx.PartitionTableNames))
-		// get the relation instances for each partition sub table
-		for i, pTableName := range oldCtx.PartitionTableNames {
-			pRel, err := dbSource.Relation(proc.Ctx, pTableName, proc)
-			if err != nil {
-				return nil, err
-			}
-			newCtx.PartitionSources[i] = pRel
-		}
-	}
-
 	arg := insert.NewArgument()
 	arg.InsertCtx = newCtx
 	return arg, nil
@@ -1973,67 +1929,4 @@ func exprRelPos(expr *plan.Expr) int32 {
 		}
 	}
 	return -1
-}
-
-// Get the 'engine.Relation' of the table by using 'ObjectRef' and 'TableDef', if 'TableDef' is nil, the relations of its index table will not be obtained
-// the first return value is Relation of the original table
-// the second return value is Relations of index tables
-func getRel(ctx context.Context, proc *process.Process, eg engine.Engine, ref *plan.ObjectRef, tableDef *plan.TableDef) (engine.Relation, []engine.Relation, error) {
-	var dbSource engine.Database
-	var relation engine.Relation
-	var err error
-	var isTemp bool
-	oldDbName := ref.SchemaName
-	if ref.SchemaName != "" {
-		dbSource, err = eg.Database(ctx, ref.SchemaName, proc.TxnOperator)
-		if err != nil {
-			return nil, nil, err
-		}
-		relation, err = dbSource.Relation(ctx, ref.ObjName, proc)
-		if err == nil {
-			isTemp = defines.TEMPORARY_DBNAME == ref.SchemaName
-		} else {
-			dbSource, err = eg.Database(ctx, defines.TEMPORARY_DBNAME, proc.TxnOperator)
-			if err != nil {
-				return nil, nil, moerr.NewNoSuchTable(ctx, ref.SchemaName, ref.ObjName)
-			}
-			newObjeName := engine.GetTempTableName(ref.SchemaName, ref.ObjName)
-			newSchemaName := defines.TEMPORARY_DBNAME
-			ref.SchemaName = newSchemaName
-			ref.ObjName = newObjeName
-			relation, err = dbSource.Relation(ctx, newObjeName, proc)
-			if err != nil {
-				return nil, nil, err
-			}
-			isTemp = true
-		}
-	} else {
-		_, _, relation, err = eg.GetRelationById(ctx, proc.TxnOperator, uint64(ref.Obj))
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	var uniqueIndexTables []engine.Relation
-	if tableDef != nil {
-		uniqueIndexTables = make([]engine.Relation, 0)
-		if tableDef.Indexes != nil {
-			for _, indexdef := range tableDef.Indexes {
-				var indexTable engine.Relation
-				if indexdef.TableExist {
-					if isTemp {
-						indexTable, err = dbSource.Relation(ctx, engine.GetTempTableName(oldDbName, indexdef.IndexTableName), proc)
-					} else {
-						indexTable, err = dbSource.Relation(ctx, indexdef.IndexTableName, proc)
-					}
-					if err != nil {
-						return nil, nil, err
-					}
-					// NOTE: uniqueIndexTables is not yet used by the callee
-					uniqueIndexTables = append(uniqueIndexTables, indexTable)
-				}
-			}
-		}
-	}
-	return relation, uniqueIndexTables, err
 }

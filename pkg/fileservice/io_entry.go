@@ -18,11 +18,18 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"time"
+	"unsafe"
 
 	"github.com/matrixorigin/matrixone/pkg/fileservice/memorycache"
+	metric "github.com/matrixorigin/matrixone/pkg/util/metric/v2"
 )
 
 func (i *IOEntry) setCachedData() error {
+	t0 := time.Now()
+	defer func() {
+		metric.FSReadDurationSetCachedData.Observe(time.Since(t0).Seconds())
+	}()
 	if i.ToCacheData == nil {
 		return nil
 	}
@@ -30,7 +37,7 @@ func (i *IOEntry) setCachedData() error {
 		return nil
 	}
 	if i.allocator == nil {
-		i.allocator = DefaultCacheDataAllocator
+		i.allocator = GetDefaultCacheDataAllocator()
 	}
 	bs, err := i.ToCacheData(bytes.NewReader(i.Data), i.Data, i.allocator)
 	if err != nil {
@@ -44,7 +51,11 @@ func (i *IOEntry) ReadFromOSFile(file *os.File) error {
 	r := io.LimitReader(file, i.Size)
 
 	if cap(i.Data) < int(i.Size) {
-		i.Data = make([]byte, i.Size)
+		ptr, dec := getMallocAllocator().Allocate(uint64(i.Size))
+		i.Data = unsafe.Slice((*byte)(ptr), i.Size)
+		i.releaseFuncs = append(i.releaseFuncs, func() {
+			dec.Deallocate(ptr)
+		})
 	} else {
 		i.Data = i.Data[:i.Size]
 	}
