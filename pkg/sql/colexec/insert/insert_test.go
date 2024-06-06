@@ -63,18 +63,24 @@ func TestInsertOperator(t *testing.T) {
 	proc := testutil.NewProc()
 	proc.TxnClient = txnClient
 	proc.Ctx = ctx
-	batch1 := &batch.Batch{
-		Vecs: []*vector.Vector{
-			testutil.MakeInt64Vector([]int64{1, 2, 0}, []uint64{2}),
-			testutil.MakeScalarInt64(3, 3),
-			testutil.MakeVarcharVector([]string{"a", "b", "c"}, nil),
-			testutil.MakeScalarVarchar("d", 3),
-			testutil.MakeScalarNull(types.T_int64, 3),
-		},
-		Attrs: []string{"int64_column", "scalar_int64", "varchar_column", "scalar_varchar", "int64_column"},
-		Cnt:   1,
-	}
-	batch1.SetRowCount(3)
+	mp := proc.Mp()
+
+	batch1 := batch.NewWithSize(5)
+	batch1.Vecs[0] = testutil.NewInt64Vector(3, types.T_int64.ToType(), mp, false, []int64{1, 2, 0})
+	batch1.Vecs[1], _ = vector.NewConstFixed[int64](types.T_int64.ToType(), 3, 3, mp)
+	batch1.Vecs[2] = testutil.NewStringVector(3, types.T_varchar.ToType(), mp, false, []string{"a", "b", "c"})
+	batch1.Vecs[3], _ = vector.NewConstBytes(types.T_varchar.ToType(), []byte("d"), 3, mp)
+	batch1.Vecs[4] = vector.NewConstNull(types.T_int64.ToType(), 3, mp)
+
+	batch2 := batch.NewWithSize(5)
+	batch2.Vecs[0] = testutil.NewInt64Vector(3, types.T_int64.ToType(), mp, false, []int64{1, 2, 0})
+	batch2.Vecs[1], _ = vector.NewConstFixed[int64](types.T_int64.ToType(), 3, 3, mp)
+	batch2.Vecs[2] = testutil.NewStringVector(3, types.T_varchar.ToType(), mp, false, []string{"a", "b", "c"})
+	batch2.Vecs[3], _ = vector.NewConstBytes(types.T_varchar.ToType(), []byte("d"), 3, mp)
+	batch2.Vecs[4] = vector.NewConstNull(types.T_int64.ToType(), 3, mp)
+
+	inputs := []*batch.Batch{batch1, batch2, nil}
+
 	argument1 := Argument{
 		InsertCtx: &InsertCtx{
 			Rel: &mockRelation{},
@@ -97,25 +103,29 @@ func TestInsertOperator(t *testing.T) {
 			state: vm.Build,
 		},
 	}
-	resetChildren(&argument1, batch1)
-	err := argument1.Prepare(proc)
-	require.NoError(t, err)
-	_, err = argument1.Call(proc)
-	require.NoError(t, err)
-	// result := argument1.InsertCtx.Rel.(*mockRelation).result
-	// require.Equal(t, result.Batch, batch.EmptyBatch)
+	resetChildren(&argument1, inputs)
+	require.NoError(t, argument1.Prepare(proc))
+
+	for {
+		result, err := argument1.Call(proc)
+		require.NoError(t, err)
+
+		if result.Status == vm.ExecStop || result.Batch == nil {
+			break
+		}
+	}
 
 	argument1.Free(proc, false, nil)
 	argument1.GetChildren(0).Free(proc, false, nil)
 	proc.FreeVectors()
-	require.Equal(t, int64(0), proc.GetMPool().CurrNB())
+	require.Equal(t, int64(0), mp.CurrNB())
 }
 
-func resetChildren(arg *Argument, bat *batch.Batch) {
+func resetChildren(arg *Argument, bs []*batch.Batch) {
 	arg.SetChildren(
 		[]vm.Operator{
 			&value_scan.Argument{
-				Batchs: []*batch.Batch{bat},
+				Batchs: bs,
 			},
 		})
 
