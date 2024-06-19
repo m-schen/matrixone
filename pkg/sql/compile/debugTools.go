@@ -17,6 +17,7 @@ package compile
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/connector"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec/dispatch"
@@ -270,4 +271,53 @@ func debugShowScopes(ss []*Scope, gap int, rmp map[*process.WaitRegister]int) st
 		result += str
 	}
 	return result
+}
+
+type sqlOperatorCatcher struct {
+	sync.RWMutex
+
+	operatorInUsed []bool
+}
+
+func getInstructionName(id vm.OpType) string {
+	if name, ok := debugInstructionNames[id]; ok {
+		return name
+	}
+	return "unknown operator"
+}
+
+const operatorDebugKey = "chenmingsong"
+
+var cDebugOperatorRecorder = sqlOperatorCatcher{
+	RWMutex:        sync.RWMutex{},
+	operatorInUsed: make([]bool, 256),
+}
+
+func recordUsingOperator(sql string, s *Scope) {
+	cDebugOperatorRecorder.Lock()
+	defer cDebugOperatorRecorder.Unlock()
+
+	if strings.Contains(sql, operatorDebugKey) {
+		for _, in := range s.Instructions {
+			idx := int(in.Op)
+
+			cDebugOperatorRecorder.operatorInUsed[idx] = true
+		}
+	}
+}
+
+func showUsingOperator(sql string) {
+	cDebugOperatorRecorder.Lock()
+	defer cDebugOperatorRecorder.Unlock()
+
+	if strings.Contains(sql, operatorDebugKey) {
+		str := ""
+		for i, b := range cDebugOperatorRecorder.operatorInUsed {
+			if b {
+				str += fmt.Sprintf("%s, ", getInstructionName(vm.OpType(i)))
+			}
+		}
+
+		fmt.Printf("key is %s, \n using operator list : [%s]", operatorDebugKey, str)
+	}
 }

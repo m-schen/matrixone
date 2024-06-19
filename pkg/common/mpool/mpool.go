@@ -264,12 +264,16 @@ type mpoolDetails struct {
 	mu    sync.Mutex
 	alloc map[string]detailInfo
 	free  map[string]detailInfo
+
+	aliveMemory map[*memHdr]string
 }
 
 func newMpoolDetails() *mpoolDetails {
 	mpd := mpoolDetails{}
 	mpd.alloc = make(map[string]detailInfo)
 	mpd.free = make(map[string]detailInfo)
+
+	mpd.aliveMemory = make(map[*memHdr]string, 1024)
 	return &mpd
 }
 
@@ -589,6 +593,7 @@ func (mp *MPool) Alloc(sz int) ([]byte, error) {
 		bs := mp.pools[idx].alloc(int32(requiredSpaceWithoutHeader))
 		if mp.details != nil {
 			mp.details.recordAlloc(int64(bs.allocSz))
+			mp.details.recordMemoryAllocate(bs)
 		}
 		return bs.ToSlice(sz, int(mp.pools[idx].eleSz)), nil
 	}
@@ -634,6 +639,7 @@ func (mp *MPool) Free(bs []byte) {
 	globalStats.RecordFree("global", recordSize)
 	if mp.details != nil {
 		mp.details.recordFree(int64(pHdr.allocSz))
+		mp.details.recordMemoryFree(pHdr)
 	}
 
 	// free from fixed pool

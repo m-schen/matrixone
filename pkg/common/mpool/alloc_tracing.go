@@ -47,6 +47,7 @@ func alloc(sz, requiredSpaceWithoutHeader int, mp *MPool) []byte {
 	pHdr.SetGuard()
 	if mp.details != nil {
 		mp.details.recordAlloc(int64(pHdr.allocSz))
+		mp.details.recordMemoryAllocate(pHdr)
 	}
 	b := pHdr.ToSlice(sz, requiredSpaceWithoutHeader)
 	// stack := string(debug.Stack())

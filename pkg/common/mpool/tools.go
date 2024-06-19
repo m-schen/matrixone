@@ -12,26 +12,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !race
-// +build !race
-
 package mpool
 
 import (
-	"unsafe"
+	"fmt"
+	"runtime/debug"
 )
 
-func alloc(sz, requiredSpaceWithoutHeader int, mp *MPool) []byte {
-	bs := make([]byte, requiredSpaceWithoutHeader+kMemHdrSz)
-	hdr := unsafe.Pointer(&bs[0])
-	pHdr := (*memHdr)(hdr)
-	pHdr.poolId = mp.id
-	pHdr.fixedPoolIdx = NumFixedPool
-	pHdr.allocSz = int32(sz)
-	pHdr.SetGuard()
-	if mp.details != nil {
-		mp.details.recordAlloc(int64(pHdr.allocSz))
-		mp.details.recordMemoryAllocate(pHdr)
+func (mp *MPool) Details() string {
+	d := mp.details
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	str := "detail is:"
+	cnt := 1
+	for _, v := range mp.details.aliveMemory {
+		str += fmt.Sprintf("\n %d. %s", cnt, v)
+		cnt++
 	}
-	return pHdr.ToSlice(sz, requiredSpaceWithoutHeader)
+	return str
+}
+
+func (d *mpoolDetails) recordMemoryAllocate(header *memHdr) {
+	stackPath := debug.Stack()
+	str := string(stackPath)
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.aliveMemory[header] = str
+}
+
+func (d *mpoolDetails) recordMemoryFree(header *memHdr) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	delete(d.aliveMemory, header)
 }
