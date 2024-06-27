@@ -125,8 +125,8 @@ func handlePipelineMessage(receiver *messageReceiverOnServer) error {
 		if err != nil || dispatchProc == nil {
 			return err
 		}
-		if cancel := colexec.Get().RecordRunningPipeline(receiver.clientSession, receiver.messageId, dispatchProc); cancel {
-			dispatchProc.Cancel()
+		if cancel := colexec.Get().RecordRunningPipeline(
+			receiver.clientSession, receiver.messageId, dispatchProc, true); cancel {
 			return nil
 		}
 
@@ -173,10 +173,8 @@ func handlePipelineMessage(receiver *messageReceiverOnServer) error {
 			return errBuildCompile
 		}
 
-		if cancel := colexec.Get().RecordRunningPipeline(receiver.clientSession, receiver.messageId, runCompile.proc); cancel {
-			runCompile.proc.Cancel()
-			return nil
-		}
+		_ = colexec.Get().RecordRunningPipeline(
+			receiver.clientSession, receiver.messageId, runCompile.proc, false)
 
 		// decode and running the pipeline.
 		s, err := decodeScope(receiver.scopeData, runCompile.proc, true, runCompile.e)

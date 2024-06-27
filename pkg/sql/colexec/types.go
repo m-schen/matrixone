@@ -61,7 +61,7 @@ type Server struct {
 type RunningPipelineMapForRemoteNode struct {
 	sync.Mutex
 
-	fromRpcClientToRunningPipeline map[rpcClientItem]*process.Process
+	fromRpcClientToRunningPipeline map[rpcClientItem]runningPipeline
 }
 
 type rpcClientItem struct {
@@ -72,7 +72,16 @@ type rpcClientItem struct {
 	id uint64
 }
 
-func (srv *Server) RecordRunningPipeline(session morpc.ClientSession, id uint64, proc *process.Process) (queryCancel bool) {
+type runningPipeline struct {
+	// If this is just a dispatch pipeline, receiver done does not mean the whole pipeline is done.
+	isDispatch bool
+
+	// The pipeline.
+	proc *process.Process
+}
+
+func (srv *Server) RecordRunningPipeline(
+	session morpc.ClientSession, id uint64, proc *process.Process, isDispatch bool) (queryCancel bool) {
 	srv.receivedRunningPipeline.Lock()
 	defer srv.receivedRunningPipeline.Unlock()
 
@@ -87,7 +96,10 @@ func (srv *Server) RecordRunningPipeline(session morpc.ClientSession, id uint64,
 		return true
 	}
 
-	srv.receivedRunningPipeline.fromRpcClientToRunningPipeline[item] = proc
+	srv.receivedRunningPipeline.fromRpcClientToRunningPipeline[item] = runningPipeline{
+		proc: proc,
+		isDispatch: isDispatch,
+	}
 	return false
 }
 
@@ -102,11 +114,15 @@ func (srv *Server) CancelRunningPipeline(session morpc.ClientSession, id uint64)
 
 	p, ok := srv.receivedRunningPipeline.fromRpcClientToRunningPipeline[item]
 	if ok {
-		p.Cancel()
-		delete(srv.receivedRunningPipeline.fromRpcClientToRunningPipeline, item)
+		// there is no need to cancel a dispatch pipeline, and can close it safely.
+		// because the dispatch pipeline will ignore the stream-closed error (dispatch/sendfunc.go:300)
+		// todo: I will remove the ignore in the future at main branch.
+		if !p.isDispatch {
+			p.proc.Cancel()
+		}
 	} else {
 		// indicate that this query was canceled. once anyone want to start this query, should just return.
-		srv.receivedRunningPipeline.fromRpcClientToRunningPipeline[item] = nil
+		srv.receivedRunningPipeline.fromRpcClientToRunningPipeline[item] = runningPipeline{}
 	}
 }
 
