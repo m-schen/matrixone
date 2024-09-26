@@ -36,6 +36,8 @@ var (
 type HashMap interface {
 	// HasNull returns whether the hash map considers the null values.
 	HasNull() bool
+	// PreAlloc allocated memories for hash map.
+	PreAlloc(n uint64) error
 	// Free method frees the hash map.
 	Free()
 	// AddGroup adds 1 to the row count of hash map.
