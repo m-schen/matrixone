@@ -15,9 +15,12 @@
 package hashcms
 
 import (
+	"context"
+	"github.com/google/uuid"
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
+	"github.com/matrixorigin/matrixone/pkg/fileservice"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"runtime"
@@ -28,6 +31,11 @@ import (
 // hashInfo: information for hash map creation.
 // spilledBatchInfo: information for spilled file.
 type spilledHashMap struct {
+	usr context.Context
+	srv fileservice.MutableFileService
+	uid uuid.UUID
+
+	// HashTable related information.
 	hashInfo struct {
 		isStrHashMap bool
 		keyHasNulls  bool
@@ -41,6 +49,7 @@ type spilledHashMap struct {
 		keyColumnIdxList []int
 	}
 
+	// spilled batches.
 	blocks []spilledBatchInfo
 }
 
@@ -65,12 +74,42 @@ func readBatchByPath(str string) *batch.Batch {
 }
 
 // writeBatchToFileService write a batch to disk.
-func writeBatchToFileService(data *batch.Batch) (filePath string, err error) {
-	return
+func (spilledHm *spilledHashMap) writeBatchToFileService(data *batch.Batch) (filePath string, err error) {
+	// todo: 使用 fileservice 包下的 mutator 相关.
+	// 具体使用方法看 mutable_file_service_test.go.
+
+	path := spilledHm.buildSpilledBatchPath()
+	entry := getIOEntryToWriteBatch(data)
+	ioVector := fileservice.IOVector{
+		FilePath: path,
+		Entries:  []fileservice.IOEntry{entry},
+	}
+
+	if err = spilledHm.srv.Write(spilledHm.usr, ioVector); err != nil {
+		return "", err
+	}
+
+	return path, nil
 }
 
-// removeBatchByPath remove a batch from disk.
-func removeBatchByPath(str string) {
+// buildSpilledBatchPath return a unique path for a new spilled block.
+func (spilledHm *spilledHashMap) buildSpilledBatchPath() string {
+	// format: temp_sh_uid_{block_idx}.
+	return ""
+}
+
+// getIOEntryToWriteBatch
+// 1. encode the batch.
+// 2. generate an io entry to write all the whole data.
+func getIOEntryToWriteBatch(b *batch.Batch) fileservice.IOEntry {
+	// todo: bs is from b.
+	var bs []byte
+
+	return fileservice.IOEntry{
+		Offset: 0,
+		Size:   -1,
+		Data:   bs,
+	}
 }
 
 // StoreBatch spill the batch with key column to disk.
@@ -105,7 +144,7 @@ func (spilledHm *spilledHashMap) StoreBatch(
 		dst.Vecs = append(dst.Vecs, v)
 	}
 
-	path, err := writeBatchToFileService(dst)
+	path, err := spilledHm.writeBatchToFileService(dst)
 	if err != nil {
 		return err
 	}
@@ -243,4 +282,13 @@ func (spilledHm *spilledHashMap) insertBatchIntoHashmap(
 	}
 
 	return nil
+}
+
+// Close
+// 1. do memory clean for spilledHashMap.
+// 2. remove all its spilled files.
+func (spilledHm *spilledHashMap) Close() {
+	for _, block := range spilledHm.blocks {
+		_ = spilledHm.srv.Delete(context.TODO(), block.path)
+	}
 }
