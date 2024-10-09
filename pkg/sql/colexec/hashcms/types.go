@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
+	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/fileservice"
@@ -34,7 +35,8 @@ import (
 // spilledBatchInfo: information for spilled file.
 type SpilledHashMap struct {
 	usr context.Context
-	srv fileservice.MutableFileService
+	mp  *mpool.MPool
+	srv ReadWriteImplementer
 	uid uuid.UUID
 
 	// HashTable related information.
@@ -55,18 +57,30 @@ type SpilledHashMap struct {
 	blocks []spilledBatchInfo
 }
 
+// ReadWriteImplementer is a subset of fileservice.FileService,
+// providing Read, Write, and Close methods externally.
+// The reason we did not use fileservice.FileService directly is that it facilitates easier testing.
+type ReadWriteImplementer interface {
+	Write(ctx context.Context, vector fileservice.IOVector) error
+	Read(ctx context.Context, vector *fileservice.IOVector) error
+	Delete(ctx context.Context, filePaths ...string) error
+	Close()
+}
+
 // InitSpilledHashMap return the SpilledHashMap which support
 // 1. store batch.
 // 2. get hash map from multiple stored batches.
 // 3. close.
 func InitSpilledHashMap(
-	usr context.Context, srv fileservice.MutableFileService,
+	usr context.Context, srv ReadWriteImplementer,
+	mp *mpool.MPool,
 	hashOnUniqueColumn bool,
 	keyWidth int, keyWithNulls bool,
 ) SpilledHashMap {
 
 	hm := SpilledHashMap{
 		usr: usr,
+		mp:  mp,
 		srv: srv,
 		uid: uuid.New(),
 	}
@@ -105,20 +119,21 @@ func (spilledHm *SpilledHashMap) readBatchByPath(str string) (*batch.Batch, erro
 	}
 
 	data := ioVector.Entries[0].Data
-	bat := &batch.Batch{}
-	// todo: decode batch from data here.
-	_ = data
-
+	bat := batch.NewOffHeapEmpty()
+	if err := bat.UnmarshalBinaryWithAnyMp(data, spilledHm.mp); err != nil {
+		return nil, err
+	}
 	return bat, nil
 }
 
 // writeBatchToFileService write a batch to disk.
-func (spilledHm *SpilledHashMap) writeBatchToFileService(data *batch.Batch) (filePath string, err error) {
-	// todo: 使用 fileservice 包下的 mutator 相关.
-	// 具体使用方法看 mutable_file_service_test.go.
-
+func (spilledHm *SpilledHashMap) writeBatchToFileService(data *batch.Batch) (string, error) {
 	path := spilledHm.buildSpilledBatchPath()
-	entry := getIOEntryToWriteBatch(data)
+	entry, err := getIOEntryToWriteBatch(data)
+	if err != nil {
+		return "", err
+	}
+
 	ioVector := fileservice.IOVector{
 		FilePath: path,
 		Entries:  []fileservice.IOEntry{entry},
@@ -141,15 +156,14 @@ func (spilledHm *SpilledHashMap) buildSpilledBatchPath() string {
 // getIOEntryToWriteBatch
 // 1. encode the batch.
 // 2. generate an io entry to write all the whole data.
-func getIOEntryToWriteBatch(b *batch.Batch) fileservice.IOEntry {
-	// todo: bs is from b.
-	var bs []byte
+func getIOEntryToWriteBatch(b *batch.Batch) (fileservice.IOEntry, error) {
+	bs, err := b.MarshalBinary()
 
 	return fileservice.IOEntry{
 		Offset: 0,
 		Size:   -1,
 		Data:   bs,
-	}
+	}, err
 }
 
 // getIOEntryToReadBatch return an IOEntry to get all the data.
@@ -264,12 +278,12 @@ func (spilledHm *SpilledHashMap) ReadHashMapByIdxes(idxes ...int) (hashmap.HashM
 			return nil, err
 		}
 
-		if err = spilledHm.insertBatchIntoHashmap(hmp, hmpItr, b, insertContext); err != nil {
+		err = spilledHm.insertBatchIntoHashmap(hmp, hmpItr, b, insertContext)
+		b.Clean(spilledHm.mp)
+		if err != nil {
 			hmp.Free()
 			return nil, err
 		}
-
-		// todo: 怎么处理b.
 	}
 	return hmp, nil
 }
@@ -363,4 +377,5 @@ func (spilledHm *SpilledHashMap) Close() {
 	for _, block := range spilledHm.blocks {
 		_ = spilledHm.srv.Delete(context.TODO(), block.path)
 	}
+	spilledHm.srv.Close()
 }
