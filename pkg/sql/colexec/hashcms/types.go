@@ -16,6 +16,7 @@ package hashcms
 
 import (
 	"context"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
@@ -24,13 +25,14 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"runtime"
+	"time"
 )
 
-// spilledHashMap splits and spills the data sources of the hash map to the disk.
+// SpilledHashMap splits and spills the data sources of the hash map to the disk.
 //
 // hashInfo: information for hash map creation.
 // spilledBatchInfo: information for spilled file.
-type spilledHashMap struct {
+type SpilledHashMap struct {
 	usr context.Context
 	srv fileservice.MutableFileService
 	uid uuid.UUID
@@ -43,14 +45,36 @@ type spilledHashMap struct {
 		// hashOnUniqueColumn is true for hash on primary key and other columns with unique index.
 		hashOnUniqueColumn bool
 
-		// totalColumnCount indicates how many vectors should be stored for one spilledBatch.
-		totalColumnCount int
+		// moreColumnCount indicates how many key columns were not just the source vector.
+		moreColumnCount int
 		// keyColumnIdxList indicates which columns were hash table keys.
 		keyColumnIdxList []int
 	}
 
 	// spilled batches.
 	blocks []spilledBatchInfo
+}
+
+// InitSpilledHashMap return the SpilledHashMap which support
+// 1. store batch.
+// 2. get hash map from multiple stored batches.
+// 3. close.
+func InitSpilledHashMap(
+	usr context.Context, srv fileservice.MutableFileService,
+	hashOnUniqueColumn bool,
+	keyWidth int, keyWithNulls bool, keyExecutors ...colexec.ExpressionExecutor,
+) SpilledHashMap {
+
+	hm := SpilledHashMap{
+		usr: usr,
+		srv: srv,
+		uid: uuid.New(),
+	}
+	hm.hashInfo.hashOnUniqueColumn = hashOnUniqueColumn
+	hm.hashInfo.keyHasNulls = keyWithNulls
+	hm.hashInfo.isStrHashMap = keyWidth > 8
+
+	return hm
 }
 
 // spilledBatchInfo stores all information about one spilled batch.
@@ -68,13 +92,28 @@ type hashmapBuildingContext struct {
 	alreadyInputRows int
 }
 
-// readBatchByPath read a batch according to its disk path.
-func readBatchByPath(str string) *batch.Batch {
-	return nil
+// readBatchByPath read a batch from its disk path.
+func (spilledHm *SpilledHashMap) readBatchByPath(str string) (*batch.Batch, error) {
+	entry := getIOEntryToReadBatch()
+	ioVector := fileservice.IOVector{
+		FilePath: str,
+		Entries:  []fileservice.IOEntry{entry},
+	}
+
+	if err := spilledHm.srv.Read(spilledHm.usr, &ioVector); err != nil {
+		return nil, err
+	}
+
+	data := ioVector.Entries[0].Data
+	bat := &batch.Batch{}
+	// todo: decode batch from data here.
+	_ = data
+
+	return bat, nil
 }
 
 // writeBatchToFileService write a batch to disk.
-func (spilledHm *spilledHashMap) writeBatchToFileService(data *batch.Batch) (filePath string, err error) {
+func (spilledHm *SpilledHashMap) writeBatchToFileService(data *batch.Batch) (filePath string, err error) {
 	// todo: 使用 fileservice 包下的 mutator 相关.
 	// 具体使用方法看 mutable_file_service_test.go.
 
@@ -93,9 +132,10 @@ func (spilledHm *spilledHashMap) writeBatchToFileService(data *batch.Batch) (fil
 }
 
 // buildSpilledBatchPath return a unique path for a new spilled block.
-func (spilledHm *spilledHashMap) buildSpilledBatchPath() string {
-	// format: temp_sh_uid_{block_idx}.
-	return ""
+func (spilledHm *SpilledHashMap) buildSpilledBatchPath() string {
+	// format: temp_sh_uid_{block_idx}_time.
+	return fmt.Sprintf(
+		"temp_sh_%s_{%d}_%s", spilledHm.uid, len(spilledHm.blocks), time.Now())
 }
 
 // getIOEntryToWriteBatch
@@ -112,20 +152,28 @@ func getIOEntryToWriteBatch(b *batch.Batch) fileservice.IOEntry {
 	}
 }
 
+// getIOEntryToReadBatch return an IOEntry to get all the data.
+func getIOEntryToReadBatch() fileservice.IOEntry {
+	return fileservice.IOEntry{
+		Offset: 0,
+		Size:   -1,
+	}
+}
+
 // StoreBatch spill the batch with key column to disk.
 //
 // 1. create a new dst batch to avoid modifying the src batch.
 // 2. evaluate the keys of hash map, and save them to the dst batch.
 // 3. spill the dst batch to the disk.
-// 4. add spill-batch information to the spilledHashMap.
-func (spilledHm *spilledHashMap) StoreBatch(
+// 4. add spill-batch information to the SpilledHashMap.
+func (spilledHm *SpilledHashMap) StoreBatch(
 	proc *process.Process, src *batch.Batch, keyExecutors ...colexec.ExpressionExecutor) error {
 
 	dst := &batch.Batch{
 		Recursive:  src.Recursive,
 		Attrs:      src.Attrs,
 		ShuffleIDX: src.ShuffleIDX,
-		Vecs:       make([]*vector.Vector, 0, spilledHm.hashInfo.totalColumnCount),
+		Vecs:       make([]*vector.Vector, 0, len(src.Vecs)+spilledHm.hashInfo.moreColumnCount),
 	}
 	dst.SetRowCount(src.RowCount())
 	dst.Vecs = append(dst.Vecs, src.Vecs...)
@@ -160,7 +208,7 @@ func (spilledHm *spilledHashMap) StoreBatch(
 //
 // 1. build an empty hash map.
 // 2. loop to read batch and insert into hash map.
-func (spilledHm *spilledHashMap) ReadHashMapByIdxes(idxes ...int) (hashmap.HashMap, error) {
+func (spilledHm *SpilledHashMap) ReadHashMapByIdxes(idxes ...int) (hashmap.HashMap, error) {
 	hmp, hmpItr, err := buildEmptyHashMap(spilledHm.hashInfo.isStrHashMap, spilledHm.hashInfo.keyHasNulls)
 	if err != nil {
 		return nil, err
@@ -190,8 +238,14 @@ func (spilledHm *spilledHashMap) ReadHashMapByIdxes(idxes ...int) (hashmap.HashM
 		insertContext.requireInputRows > hashmap.HashMapSizeThreshHold
 
 	// data insert.
+	var b *batch.Batch
 	for _, idx := range idxes {
-		b := readBatchByPath(spilledHm.blocks[idx].path)
+		b, err = spilledHm.readBatchByPath(spilledHm.blocks[idx].path)
+		if err != nil {
+			hmp.Free()
+			return nil, err
+		}
+
 		if err = spilledHm.insertBatchIntoHashmap(hmp, hmpItr, b, insertContext); err != nil {
 			hmp.Free()
 			return nil, err
@@ -232,7 +286,7 @@ func buildEmptyHashMap(isStr bool, hasNulls bool) (hashmap.HashMap, hashmap.Iter
 //
 // 1. try to expand the memory.
 // 2. do insertion.
-func (spilledHm *spilledHashMap) insertBatchIntoHashmap(
+func (spilledHm *SpilledHashMap) insertBatchIntoHashmap(
 	hmp hashmap.HashMap,
 	itr hashmap.Iterator,
 	data *batch.Batch, ctx *hashmapBuildingContext) error {
@@ -285,9 +339,9 @@ func (spilledHm *spilledHashMap) insertBatchIntoHashmap(
 }
 
 // Close
-// 1. do memory clean for spilledHashMap.
+// 1. do memory clean for SpilledHashMap.
 // 2. remove all its spilled files.
-func (spilledHm *spilledHashMap) Close() {
+func (spilledHm *SpilledHashMap) Close() {
 	for _, block := range spilledHm.blocks {
 		_ = spilledHm.srv.Delete(context.TODO(), block.path)
 	}
