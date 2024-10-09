@@ -45,8 +45,8 @@ type SpilledHashMap struct {
 		// hashOnUniqueColumn is true for hash on primary key and other columns with unique index.
 		hashOnUniqueColumn bool
 
-		// moreColumnCount indicates how many key columns were not just the source vector.
-		moreColumnCount int
+		// totalColumnCount indicates how many columns were stored to disk.
+		totalColumnCount int
 		// keyColumnIdxList indicates which columns were hash table keys.
 		keyColumnIdxList []int
 	}
@@ -62,7 +62,7 @@ type SpilledHashMap struct {
 func InitSpilledHashMap(
 	usr context.Context, srv fileservice.MutableFileService,
 	hashOnUniqueColumn bool,
-	keyWidth int, keyWithNulls bool, keyExecutors ...colexec.ExpressionExecutor,
+	keyWidth int, keyWithNulls bool,
 ) SpilledHashMap {
 
 	hm := SpilledHashMap{
@@ -70,9 +70,9 @@ func InitSpilledHashMap(
 		srv: srv,
 		uid: uuid.New(),
 	}
-	hm.hashInfo.hashOnUniqueColumn = hashOnUniqueColumn
-	hm.hashInfo.keyHasNulls = keyWithNulls
 	hm.hashInfo.isStrHashMap = keyWidth > 8
+	hm.hashInfo.keyHasNulls = keyWithNulls
+	hm.hashInfo.hashOnUniqueColumn = hashOnUniqueColumn
 
 	return hm
 }
@@ -169,11 +169,29 @@ func getIOEntryToReadBatch() fileservice.IOEntry {
 func (spilledHm *SpilledHashMap) StoreBatch(
 	proc *process.Process, src *batch.Batch, keyExecutors ...colexec.ExpressionExecutor) error {
 
+	// If this is the first time to spill a batch, do some prepared calculation.
+	if len(spilledHm.blocks) == 0 {
+		spilledHm.hashInfo.totalColumnCount = len(src.Vecs)
+		spilledHm.hashInfo.keyColumnIdxList = make([]int, len(keyExecutors))
+
+		for i, exec := range keyExecutors {
+			if exec.IsColumnExpr() {
+				columnExpr := exec.(*colexec.ColumnExpressionExecutor)
+				spilledHm.hashInfo.keyColumnIdxList[i] = columnExpr.GetColIndex()
+				continue
+			}
+
+			spilledHm.hashInfo.keyColumnIdxList[i] = spilledHm.hashInfo.totalColumnCount
+			spilledHm.hashInfo.totalColumnCount++
+		}
+	}
+
+	// normal spill.
 	dst := &batch.Batch{
 		Recursive:  src.Recursive,
 		Attrs:      src.Attrs,
 		ShuffleIDX: src.ShuffleIDX,
-		Vecs:       make([]*vector.Vector, 0, len(src.Vecs)+spilledHm.hashInfo.moreColumnCount),
+		Vecs:       make([]*vector.Vector, 0, spilledHm.hashInfo.totalColumnCount),
 	}
 	dst.SetRowCount(src.RowCount())
 	dst.Vecs = append(dst.Vecs, src.Vecs...)
