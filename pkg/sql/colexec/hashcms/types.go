@@ -106,11 +106,11 @@ type hashmapBuildingContext struct {
 	alreadyInputRows int
 }
 
-// readBatchByPath read a batch from its disk path.
-func (spilledHm *SpilledHashMap) readBatchByPath(str string) (*batch.Batch, error) {
+// ReadBatchByIndex read the idx block.
+func (spilledHm *SpilledHashMap) ReadBatchByIndex(idx int) (*batch.Batch, error) {
 	entry := getIOEntryToReadBatch()
 	ioVector := fileservice.IOVector{
-		FilePath: str,
+		FilePath: spilledHm.blocks[idx].path,
 		Entries:  []fileservice.IOEntry{entry},
 	}
 
@@ -212,7 +212,8 @@ func (spilledHm *SpilledHashMap) StoreBatch(
 
 	for i, idx := range spilledHm.hashInfo.keyColumnIdxList {
 		if idx < len(src.Vecs) {
-			dst.Vecs = append(dst.Vecs, src.Vecs[idx])
+			// If hash key is one of the origin column,
+			// there is no need to store it again.
 			continue
 		}
 
@@ -236,11 +237,11 @@ func (spilledHm *SpilledHashMap) StoreBatch(
 	return nil
 }
 
-// ReadHashMapByIdxes return a hashmap from specific batches.
+// BuildHashMapFromIdxes return a hashmap from specific batches.
 //
 // 1. build an empty hash map.
 // 2. loop to read batch and insert into hash map.
-func (spilledHm *SpilledHashMap) ReadHashMapByIdxes(idxes ...int) (hashmap.HashMap, error) {
+func (spilledHm *SpilledHashMap) BuildHashMapFromIdxes(idxes ...int) (hashmap.HashMap, error) {
 	hmp, hmpItr, err := buildEmptyHashMap(spilledHm.hashInfo.isStrHashMap, spilledHm.hashInfo.keyHasNulls)
 	if err != nil {
 		return nil, err
@@ -272,7 +273,7 @@ func (spilledHm *SpilledHashMap) ReadHashMapByIdxes(idxes ...int) (hashmap.HashM
 	// data insert.
 	var b *batch.Batch
 	for _, idx := range idxes {
-		b, err = spilledHm.readBatchByPath(spilledHm.blocks[idx].path)
+		b, err = spilledHm.ReadBatchByIndex(idx)
 		if err != nil {
 			hmp.Free()
 			return nil, err
@@ -370,6 +371,16 @@ func (spilledHm *SpilledHashMap) insertBatchIntoHashmap(
 	return nil
 }
 
+// Blocks return how many spilled-blocks were held.
+func (spilledHm *SpilledHashMap) Blocks() int {
+	return len(spilledHm.blocks)
+}
+
+// GetKeyIndexes return the hash-key index list to help user get hash-key vectors.
+func (spilledHm *SpilledHashMap) GetKeyIndexes() []int {
+	return spilledHm.hashInfo.keyColumnIdxList
+}
+
 // Close
 // 1. do memory clean for SpilledHashMap.
 // 2. remove all its spilled files.
@@ -378,4 +389,5 @@ func (spilledHm *SpilledHashMap) Close() {
 		_ = spilledHm.srv.Delete(context.TODO(), block.path)
 	}
 	spilledHm.srv.Close()
+	spilledHm.blocks = nil
 }

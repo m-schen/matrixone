@@ -97,6 +97,42 @@ func TestSpilledHashMap1(t *testing.T) {
 
 	// test write.
 	require.NoError(t, spilledHm.StoreBatch(proc, src, executor))
+	require.Equal(t, 1, spilledHm.Blocks())
+
+	// test read.
+	var dst *batch.Batch
+	dst, err = spilledHm.ReadBatchByIndex(0)
+	require.NoError(t, err)
+
+	// compare src and dst.
+	{
+		require.NotNil(t, dst)
+		require.Equal(t, src.RowCount(), dst.RowCount())
+		require.Equal(t, len(src.Vecs), len(dst.Vecs))
+		for i, originVec := range src.Vecs {
+			gotVec := dst.Vecs[i]
+			t1, t2 := *originVec.GetType(), *gotVec.GetType()
+			require.Equal(t, t1, t2)
+
+			switch t1.Oid {
+			case types.T_int64:
+				vs1 := vector.MustFixedColNoTypeCheck[int64](originVec)
+				vs2 := vector.MustFixedColNoTypeCheck[int64](gotVec)
+				require.Equal(t, len(vs1), len(vs2))
+				for j := range vs1 {
+					require.Equal(t, vs1[j], vs2[j])
+				}
+
+			case types.T_bool:
+				vs1 := vector.MustFixedColNoTypeCheck[bool](originVec)
+				vs2 := vector.MustFixedColNoTypeCheck[bool](gotVec)
+				require.Equal(t, len(vs1), len(vs2))
+				for j := range vs1 {
+					require.Equal(t, vs1[j], vs2[j])
+				}
+			}
+		}
+	}
 
 	// test close.
 	executor.Free()
