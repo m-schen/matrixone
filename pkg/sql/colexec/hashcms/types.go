@@ -341,7 +341,6 @@ func (spilledHm *SpilledHashMap) insertBatchIntoHashmap(
 		// do estimation for hashmap size and do pre-allocation after 8192 rows.
 		if ctx.doPreAllocatedCheck {
 			if ctx.alreadyInputRows >= hashmap.HashMapSizeEstimate {
-
 				group := hmp.GroupCount()
 				rate := float64(group) / float64(ctx.alreadyInputRows)
 				mayCap := uint64(float64(ctx.requireInputRows) * rate)
