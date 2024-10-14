@@ -145,32 +145,31 @@ func TestSpilledHashMap1(t *testing.T) {
 // we should ensure that, SpilledHashMap can build a right kv map from spilled batches.
 func TestSpilledHashMap2(t *testing.T) {
 	t.Skip()
-	//proc := testutil.NewProcess()
-	//mp := proc.Mp()
-	//usrCtx := context.Background()
-	//srv := &memoryDiskForTest{
-	//	data: make(map[string][]byte, 10),
-	//}
+	proc := testutil.NewProcess()
+	mp := proc.Mp()
+	usrCtx := context.Background()
+	srv := &memoryDiskForTest{
+		data: make(map[string][]byte, 10),
+	}
 
 	// from a small batch ( row count < 8192).
 	{
-		//spilledHm := InitSpilledHashMap(
-		//	usrCtx, srv, mp, true, 8, false)
-		//
-		//src := &batch.Batch{}
-		//vs := make([]int64, 3000)
-		//for i := range vs {
-		//	vs[i] = int64(i)
-		//}
-		//v1 := testutil.NewInt64Vector(len(vs), types.T_int64.ToType(), mp, false, vs)
+		spilledHm := InitSpilledHashMap(
+			usrCtx, srv, mp, true, 8, false)
 
+		src := &batch.Batch{}
+		vs := make([]int64, 3000)
+		for i := range vs {
+			vs[i] = int64(i)
+		}
+		v1 := testutil.NewInt64Vector(len(vs), types.T_int64.ToType(), mp, false, vs)
+		src.Vecs = []*vector.Vector{v1}
 	}
 
 	// from a big batch (row count >= 8192).
 	{
 
 	}
-
 }
 
 // TestSpilledHashMap3 do test for building hash map from a non-unique-constraint column.
