@@ -17,7 +17,9 @@ package hashcms
 import (
 	"context"
 	"fmt"
+	"github.com/matrixorigin/matrixone/pkg/common/hashmap"
 	"github.com/matrixorigin/matrixone/pkg/common/moerr"
+	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
 	"github.com/matrixorigin/matrixone/pkg/container/types"
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
@@ -25,6 +27,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/testutil"
+	"github.com/matrixorigin/matrixone/pkg/vm/process"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -79,21 +82,7 @@ func TestSpilledHashMap1(t *testing.T) {
 	src.Vecs = []*vector.Vector{v1, v2}
 	src.SetRowCount(10)
 
-	col := &plan.Expr{
-		Expr: &plan.Expr_Col{
-			Col: &plan.ColRef{
-				RelPos: 0,
-				ColPos: 0,
-			},
-		},
-		Typ: plan.Type{
-			Id:          int32(types.T_int64),
-			NotNullable: true,
-		},
-	}
-
-	executor, err := colexec.NewExpressionExecutor(proc, col)
-	require.NoError(t, err)
+	executor := gColumnExprExecutor(proc, types.T_int64, 0, true)
 
 	// test write.
 	require.NoError(t, spilledHm.StoreBatch(proc, src, executor))
@@ -101,8 +90,7 @@ func TestSpilledHashMap1(t *testing.T) {
 	require.Equal(t, uint64(src.RowCount()), spilledHm.blocks[0].rowCount)
 
 	// test read.
-	var dst *batch.Batch
-	dst, err = spilledHm.ReadBatchByIndex(0)
+	dst, err := spilledHm.ReadBatchByIndex(0)
 	require.NoError(t, err)
 
 	// compare src and dst.
@@ -144,7 +132,6 @@ func TestSpilledHashMap1(t *testing.T) {
 //
 // we should ensure that, SpilledHashMap can build a right kv map from spilled batches.
 func TestSpilledHashMap2(t *testing.T) {
-	t.Skip()
 	proc := testutil.NewProcess()
 	mp := proc.Mp()
 	usrCtx := context.Background()
@@ -164,12 +151,69 @@ func TestSpilledHashMap2(t *testing.T) {
 		}
 		v1 := testutil.NewInt64Vector(len(vs), types.T_int64.ToType(), mp, false, vs)
 		src.Vecs = []*vector.Vector{v1}
+
+		executor := gColumnExprExecutor(proc, types.T_int64, 0, false)
+		require.NoError(t, spilledHm.StoreBatch(proc, src, executor))
+
+		m, itr, err := spilledHm.BuildHashMapFromIdxes(0)
+		require.NoError(t, err)
+
+		err = doInt64HashTableTest(mp, itr,
+			vs, []int64{-1, -2, 3001, 3002})
+		require.NoError(t, err)
+
+		m.Free()
+		spilledHm.Close()
+		src.Clean(mp)
+
+		require.Equal(t, int64(0), mp.CurrNB())
 	}
 
 	// from a big batch (row count >= 8192).
 	{
+		spilledHm := InitSpilledHashMap(
+			usrCtx, srv, mp, true, 8, false)
 
+		// first input.
+		src1 := &batch.Batch{}
+		vs1 := make([]int64, 8192)
+		for i := range vs1 {
+			vs1[i] = int64(i)
+		}
+		v1 := testutil.NewInt64Vector(len(vs1), types.T_int64.ToType(), mp, false, vs1)
+		src1.Vecs = []*vector.Vector{v1}
+
+		// second input.
+		src2 := &batch.Batch{}
+		vs2 := make([]int64, 8192)
+		j := int64(8193)
+		for i := range vs2 {
+			vs2[i] = j
+			j++
+		}
+		v2 := testutil.NewInt64Vector(len(vs2), types.T_int64.ToType(), mp, false, vs2)
+		src2.Vecs = []*vector.Vector{v2}
+
+		executor := gColumnExprExecutor(proc, types.T_int64, 0, false)
+		require.NoError(t, spilledHm.StoreBatch(proc, src1, executor))
+		require.NoError(t, spilledHm.StoreBatch(proc, src2, executor))
+
+		m, itr, err := spilledHm.BuildHashMapFromIdxes(0, 1)
+		require.NoError(t, err)
+
+		err = doInt64HashTableTest(mp, itr,
+			append(vs1, vs2...), []int64{-1, -2, 123456})
+		require.NoError(t, err)
+
+		m.Free()
+		spilledHm.Close()
+		src1.Clean(mp)
+		src2.Clean(mp)
+
+		require.Equal(t, int64(0), mp.CurrNB())
 	}
+
+	srv.Close()
 }
 
 // TestSpilledHashMap3 do test for building hash map from a non-unique-constraint column.
@@ -177,4 +221,84 @@ func TestSpilledHashMap2(t *testing.T) {
 // we should ensure that, SpilledHashMap can build a right kv map from spilled batches.
 func TestSpilledHashMap3(t *testing.T) {
 
+}
+
+func gColumnExprExecutor(
+	proc *process.Process,
+	typ types.T, columnIdx int32, nullable bool) colexec.ExpressionExecutor {
+	col := &plan.Expr{
+		Expr: &plan.Expr_Col{
+			Col: &plan.ColRef{
+				RelPos: 0,
+				ColPos: columnIdx,
+			},
+		},
+		Typ: plan.Type{
+			Id:          int32(typ),
+			NotNullable: nullable,
+		},
+	}
+
+	executor, err := colexec.NewExpressionExecutor(proc, col)
+	if err != nil {
+		panic(err)
+	}
+	return executor
+}
+
+func doInt64HashTableTest(
+	mp *mpool.MPool,
+	itr hashmap.Iterator,
+	requireKey []int64,
+	notRequireKey []int64) error {
+
+	var vec1, vec2 *vector.Vector
+	defer func() {
+		if vec1 != nil {
+			vec1.Free(mp)
+		}
+		if vec2 != nil {
+			vec2.Free(mp)
+		}
+	}()
+
+	cannotFound := uint64(0)
+
+	if len(requireKey) > 0 {
+		vec1 = testutil.NewInt64Vector(len(requireKey), types.T_int64.ToType(), mp, false, requireKey)
+
+		for i := 0; i < len(requireKey); i += hashmap.UnitLimit {
+			n := len(requireKey) - i
+			if n > hashmap.UnitLimit {
+				n = hashmap.UnitLimit
+			}
+
+			zs, _ := itr.Find(i, n, []*vector.Vector{vec1})
+			for _, v := range zs {
+				if v == cannotFound {
+					return moerr.NewInternalErrorNoCtxf("require %d but cannot find it from hashmap", v)
+				}
+			}
+		}
+	}
+
+	if len(notRequireKey) > 0 {
+		vec2 = testutil.NewInt64Vector(len(notRequireKey), types.T_int64.ToType(), mp, false, notRequireKey)
+
+		for i := 0; i < len(notRequireKey); i += hashmap.UnitLimit {
+			n := len(notRequireKey) - i
+			if n > hashmap.UnitLimit {
+				n = hashmap.UnitLimit
+			}
+
+			zs, _ := itr.Find(i, n, []*vector.Vector{vec2})
+			for _, v := range zs {
+				if v != cannotFound {
+					return moerr.NewInternalErrorNoCtxf("require no %d but find it from hashmap", v)
+				}
+			}
+		}
+	}
+
+	return nil
 }

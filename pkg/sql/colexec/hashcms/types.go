@@ -58,13 +58,12 @@ type SpilledHashMap struct {
 }
 
 // ReadWriteImplementer is a subset of fileservice.FileService,
-// providing Read, Write, and Close methods externally.
+// providing Read, Write, and Delete method externally.
 // The reason we did not use fileservice.FileService directly is that it facilitates easier testing.
 type ReadWriteImplementer interface {
 	Write(ctx context.Context, vector fileservice.IOVector) error
 	Read(ctx context.Context, vector *fileservice.IOVector) error
 	Delete(ctx context.Context, filePaths ...string) error
-	Close()
 }
 
 // InitSpilledHashMap return the SpilledHashMap which support
@@ -241,10 +240,10 @@ func (spilledHm *SpilledHashMap) StoreBatch(
 //
 // 1. build an empty hash map.
 // 2. loop to read batch and insert into hash map.
-func (spilledHm *SpilledHashMap) BuildHashMapFromIdxes(idxes ...int) (hashmap.HashMap, error) {
+func (spilledHm *SpilledHashMap) BuildHashMapFromIdxes(idxes ...int) (hashmap.HashMap, hashmap.Iterator, error) {
 	hmp, hmpItr, err := buildEmptyHashMap(spilledHm.hashInfo.isStrHashMap, spilledHm.hashInfo.keyHasNulls)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	insertContext := &hashmapBuildingContext{
@@ -262,7 +261,7 @@ func (spilledHm *SpilledHashMap) BuildHashMapFromIdxes(idxes ...int) (hashmap.Ha
 	if spilledHm.hashInfo.hashOnUniqueColumn {
 		if err = hmp.PreAlloc(insertContext.requireInputRows); err != nil {
 			hmp.Free()
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -276,17 +275,17 @@ func (spilledHm *SpilledHashMap) BuildHashMapFromIdxes(idxes ...int) (hashmap.Ha
 		b, err = spilledHm.ReadBatchByIndex(idx)
 		if err != nil {
 			hmp.Free()
-			return nil, err
+			return nil, nil, err
 		}
 
 		err = spilledHm.insertBatchIntoHashmap(hmp, hmpItr, b, insertContext)
 		b.Clean(spilledHm.mp)
 		if err != nil {
 			hmp.Free()
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return hmp, nil
+	return hmp, hmpItr, nil
 }
 
 // buildEmptyHashMap generate an empty hash map.
@@ -387,6 +386,5 @@ func (spilledHm *SpilledHashMap) Close() {
 	for _, block := range spilledHm.blocks {
 		_ = spilledHm.srv.Delete(context.TODO(), block.path)
 	}
-	spilledHm.srv.Close()
 	spilledHm.blocks = nil
 }
