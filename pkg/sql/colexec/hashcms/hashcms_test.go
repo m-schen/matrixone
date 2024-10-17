@@ -220,7 +220,81 @@ func TestSpilledHashMap2(t *testing.T) {
 //
 // we should ensure that, SpilledHashMap can build a right kv map from spilled batches.
 func TestSpilledHashMap3(t *testing.T) {
+	 proc := testutil.NewProcess()
+	 mp := proc.Mp()
+	 usrCtx := context.Background()
+	 srv := &memoryDiskForTest{
+		 data: make(map[string][]byte, 10),
+	 }
 
+	 // from a small batch (row count < 8192).
+	 {
+		 spilledHm := InitSpilledHashMap(usrCtx, srv, mp, false, 8, false)
+
+		 src1 := &batch.Batch{}
+		 vs1 := make([]int64, 1500)
+		 for i := range vs1 {
+			 vs1[i] = int64(i)
+		 }
+		 vs1 = append(vs1, vs1...)
+		 v1 := testutil.NewInt64Vector(len(vs1), types.T_int64.ToType(), mp, false, vs1)
+		 src1.Vecs = []*vector.Vector{v1}
+
+		 executor := gColumnExprExecutor(proc, types.T_int64, 0, false)
+		 require.NoError(t, spilledHm.StoreBatch(proc, src1, executor))
+
+		 m, itr, err := spilledHm.BuildHashMapFromIdxes(0)
+		 require.NoError(t, err)
+
+		 err = doInt64HashTableTest(mp, itr, vs1, []int64{-1, -2, 1501, 1502})
+		 require.NoError(t, err)
+
+		 m.Free()
+		 spilledHm.Close()
+		 src1.Clean(mp)
+
+		 require.Equal(t, int64(0), mp.CurrNB())
+	 }
+
+	 // from a big batch (row count >= 8192).
+	 {
+		 spilledHm := InitSpilledHashMap(usrCtx, srv, mp, false, 8, false)
+
+		 // first input.
+		 src1 := &batch.Batch{}
+		 vs1 := make([]int64, 8192)
+		 for i := range vs1 {
+			 vs1[i] = int64(i)
+		 }
+		 v1 := testutil.NewInt64Vector(len(vs1), types.T_int64.ToType(), mp, false, vs1)
+		 src1.Vecs = []*vector.Vector{v1}
+
+		 // second input.
+		 src2 := &batch.Batch{}
+		 vs2 := make([]int64, 8192)
+		 for i := range vs2 {
+			 vs2[i] = vs1[i]
+		 }
+		 v2 := testutil.NewInt64Vector(len(vs2), types.T_int64.ToType(), mp, false, vs2)
+		 src2.Vecs = []*vector.Vector{v2}
+
+		 executor := gColumnExprExecutor(proc, types.T_int64, 0, false)
+		 require.NoError(t, spilledHm.StoreBatch(proc, src1, executor))
+		 require.NoError(t, spilledHm.StoreBatch(proc, src2, executor))
+
+		 m, itr, err := spilledHm.BuildHashMapFromIdxes(0, 1)
+		 require.NoError(t, err)
+
+		 err = doInt64HashTableTest(mp, itr, vs1, []int64{-1, -2, 8193, 8194})
+		 require.NoError(t, err)
+
+		 m.Free()
+		 spilledHm.Close()
+		 src1.Clean(mp)
+		 src2.Clean(mp)
+
+		 require.Equal(t, int64(0), mp.CurrNB())
+	 }
 }
 
 func gColumnExprExecutor(
