@@ -295,6 +295,8 @@ func TestSpilledHashMap3(t *testing.T) {
 
 		 require.Equal(t, int64(0), mp.CurrNB())
 	 }
+
+	srv.Close()
 }
 
 func gColumnExprExecutor(
