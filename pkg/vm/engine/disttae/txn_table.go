@@ -1450,7 +1450,7 @@ func (tbl *txnTable) Write(ctx context.Context, bat *batch.Batch) error {
 		ibat.Clean(tbl.getTxn().proc.Mp())
 		return err
 	}
-	return tbl.getTxn().dumpBatch(tbl.getTxn().GetSnapshotWriteOffset())
+	return tbl.getTxn().dumpBatch(ctx, tbl.getTxn().GetSnapshotWriteOffset())
 }
 
 func (tbl *txnTable) Update(ctx context.Context, bat *batch.Batch) error {
@@ -1524,7 +1524,7 @@ func (tbl *txnTable) ensureSeqnumsAndTypesExpectRowid() {
 }
 
 // TODO:: do prefetch read and parallel compaction
-func (tbl *txnTable) compaction(
+func (tbl *txnTable) compaction(ctx context.Context,
 	compactedBlks map[objectio.ObjectLocation][]int64,
 ) ([]objectio.BlockInfo, objectio.ObjectStats, error) {
 	s3writer, err := colexec.NewS3Writer(tbl.tableDef, 0)
@@ -1552,7 +1552,7 @@ func (tbl *txnTable) compaction(
 		s3writer.StashBatch(tbl.getTxn().proc, bat)
 		bat.Clean(tbl.getTxn().proc.GetMPool())
 	}
-	return s3writer.SortAndSync(tbl.getTxn().proc)
+	return s3writer.SortAndSync(ctx, tbl.getTxn().proc)
 }
 
 func (tbl *txnTable) Delete(
@@ -1783,6 +1783,7 @@ func (tbl *txnTable) BuildReaders(
 			tbl.db.op.SnapshotTS(),
 			expr,
 			ds,
+			engine_util.GetThresholdForReader(newNum),
 		)
 		if err != nil {
 			return nil, err
@@ -1832,6 +1833,11 @@ func (tbl *txnTable) getPartitionState(
 		if err != nil {
 			return nil, err
 		}
+		logutil.Infof("Get partition state for snapshot read, table:%s, tid:%v, txn:%s, ps:%p",
+			tbl.tableName,
+			tbl.tableId,
+			tbl.db.op.Txn().DebugString(),
+			ps)
 		tbl._partState.Store(ps)
 	}
 	return tbl._partState.Load(), nil
@@ -2022,12 +2028,17 @@ func (tbl *txnTable) PrimaryKeysMayBeModified(
 		return false,
 			moerr.NewInternalErrorNoCtx("primary key modification is not allowed in snapshot transaction")
 	}
+
+	//snap, err := tbl.getPartitionState(ctx)
+	//if err != nil {
+	//	return false, err
+	//}
 	part, err := tbl.eng.(*Engine).LazyLoadLatestCkp(ctx, tbl)
 	if err != nil {
 		return false, err
 	}
-
 	snap := part.Snapshot()
+
 	var packer *types.Packer
 	put := tbl.eng.(*Engine).packerPool.Get(&packer)
 	defer put.Put()

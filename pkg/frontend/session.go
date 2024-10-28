@@ -39,6 +39,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
 	"github.com/matrixorigin/matrixone/pkg/pb/query"
 	"github.com/matrixorigin/matrixone/pkg/pb/status"
+	"github.com/matrixorigin/matrixone/pkg/perfcounter"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/sql/parsers/dialect/mysql"
 	"github.com/matrixorigin/matrixone/pkg/sql/parsers/tree"
@@ -873,11 +874,11 @@ func (ses *Session) GetShowStmtType() ShowStatementType {
 	return ses.showStmtType
 }
 
-func (ses *Session) GetOutputCallback(execCtx *ExecCtx) func(*batch.Batch) error {
+func (ses *Session) GetOutputCallback(execCtx *ExecCtx) func(*batch.Batch, *perfcounter.CounterSet) error {
 	ses.mu.Lock()
 	defer ses.mu.Unlock()
-	return func(bat *batch.Batch) error {
-		return ses.outputCallback(ses, execCtx, bat)
+	return func(bat *batch.Batch, crs *perfcounter.CounterSet) error {
+		return ses.outputCallback(ses, execCtx, bat, crs)
 	}
 }
 
@@ -1700,7 +1701,7 @@ func Migrate(ses *Session, req *query.MigrateConnToRequest) error {
 	parameters := getPu(ses.GetService()).SV
 
 	//all offspring related to the request inherit the txnCtx
-	cancelRequestCtx, cancelRequestFunc := context.WithTimeout(ses.GetTxnHandler().GetTxnCtx(), parameters.SessionTimeout.Duration)
+	cancelRequestCtx, cancelRequestFunc := context.WithTimeoutCause(ses.GetTxnHandler().GetTxnCtx(), parameters.SessionTimeout.Duration, moerr.CauseMigrate)
 	defer cancelRequestFunc()
 	ses.UpdateDebugString()
 	tenant := ses.GetTenantInfo()
@@ -1723,7 +1724,7 @@ func Migrate(ses *Session, req *query.MigrateConnToRequest) error {
 
 	dbm := newDBMigration(req.DB)
 	if err := dbm.Migrate(ctx, ses); err != nil {
-		return err
+		return moerr.AttachCause(ctx, err)
 	}
 
 	var maxStmtID uint32
@@ -1733,7 +1734,7 @@ func Migrate(ses *Session, req *query.MigrateConnToRequest) error {
 		}
 		pm := newPrepareStmtMigration(p.Name, p.SQL, p.ParamTypes)
 		if err := pm.Migrate(ctx, ses); err != nil {
-			return err
+			return moerr.AttachCause(ctx, err)
 		}
 		id := parsePrepareStmtID(p.Name)
 		if id > maxStmtID {

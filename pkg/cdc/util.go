@@ -599,7 +599,7 @@ var GetTxn = func(
 
 var FinishTxnOp = func(ctx context.Context, inputErr error, txnOp client.TxnOperator, cnEngine engine.Engine) {
 	//same timeout value as it in frontend
-	ctx2, cancel := context.WithTimeout(ctx, cnEngine.Hints().CommitOrRollbackTimeout)
+	ctx2, cancel := context.WithTimeoutCause(ctx, cnEngine.Hints().CommitOrRollbackTimeout, moerr.CauseFinishTxnOp)
 	defer cancel()
 	if inputErr != nil {
 		_ = txnOp.Rollback(ctx2)
@@ -618,6 +618,14 @@ var GetSnapshotTS = func(txnOp client.TxnOperator) timestamp.Timestamp {
 
 var CollectChanges = func(ctx context.Context, rel engine.Relation, fromTs, toTs types.TS, mp *mpool.MPool) (engine.ChangesHandle, error) {
 	return rel.CollectChanges(ctx, fromTs, toTs, mp)
+}
+
+var EnterRunSql = func(txnOp client.TxnOperator) {
+	txnOp.EnterRunSql()
+}
+
+var ExitRunSql = func(txnOp client.TxnOperator) {
+	txnOp.ExitRunSql()
 }
 
 func GetTableDef(

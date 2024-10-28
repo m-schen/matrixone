@@ -37,6 +37,7 @@ import (
 	"github.com/matrixorigin/matrixone/pkg/container/vector"
 	"github.com/matrixorigin/matrixone/pkg/pb/plan"
 	"github.com/matrixorigin/matrixone/pkg/pb/timestamp"
+	"github.com/matrixorigin/matrixone/pkg/perfcounter"
 	"github.com/matrixorigin/matrixone/pkg/sql/colexec"
 	"github.com/matrixorigin/matrixone/pkg/sql/compile"
 	"github.com/matrixorigin/matrixone/pkg/sql/models"
@@ -211,7 +212,7 @@ type ComputationWrapper interface {
 
 	GetColumns(ctx context.Context) ([]interface{}, error)
 
-	Compile(any any, fill func(*batch.Batch) error) (interface{}, error)
+	Compile(any any, fill func(*batch.Batch, *perfcounter.CounterSet) error) (interface{}, error)
 
 	GetUUID() []byte
 
@@ -278,11 +279,14 @@ type PrepareStmt struct {
 Disguise the COMMAND CMD_FIELD_LIST as sql query.
 */
 const (
-	cmdFieldListSql    = "__++__internal_cmd_field_list"
-	cmdFieldListSqlLen = len(cmdFieldListSql)
-	cloudUserTag       = "cloud_user"
-	cloudNoUserTag     = "cloud_nonuser"
-	saveResultTag      = "save_result"
+	cmdFieldListSql           = "__++__internal_cmd_field_list"
+	cmdFieldListSqlLen        = len(cmdFieldListSql)
+	cloudUserTag              = "cloud_user"
+	cloudNoUserTag            = "cloud_nonuser"
+	saveResultTag             = "save_result"
+	validatePasswordPolicyTag = "validate_password.policy"
+	validatePasswordPolicyLow = "low"
+	validatePasswordPolicyMed = "medium"
 )
 
 var _ tree.Statement = &InternalCmdFieldList{}
@@ -615,7 +619,7 @@ func (execCtx *ExecCtx) Close() {
 //	FeSession
 //	ExecCtx
 //	batch.Batch
-type outputCallBackFunc func(FeSession, *ExecCtx, *batch.Batch) error
+type outputCallBackFunc func(FeSession, *ExecCtx, *batch.Batch, *perfcounter.CounterSet) error
 
 // TODO: shared component among the session implmentation
 type feSessionImpl struct {
@@ -990,6 +994,16 @@ func (ses *Session) SetGlobalSysVar(ctx context.Context, name string, val interf
 		return moerr.NewInternalErrorNoCtx(errorSystemVariableIsReadOnly())
 	}
 
+	if policy, ok := val.(string); ok && name == validatePasswordPolicyTag {
+		if strings.ToLower(policy) == validatePasswordPolicyLow {
+			// convert to 0
+			val = int64(0)
+		} else if strings.ToLower(policy) == validatePasswordPolicyMed {
+			// convert to 1
+			val = int64(1)
+		}
+	}
+
 	if val, err = def.GetType().Convert(val); err != nil {
 		return err
 	}
@@ -1150,7 +1164,7 @@ type Property interface {
 type Responser interface {
 	Property
 	RespPreMeta(*ExecCtx, any) error
-	RespResult(*ExecCtx, *batch.Batch) error
+	RespResult(*ExecCtx, *perfcounter.CounterSet, *batch.Batch) error
 	RespPostMeta(*ExecCtx, any) error
 	MysqlRrWr() MysqlRrWr
 	Close()
@@ -1161,7 +1175,7 @@ type MediaReader interface {
 }
 
 type MediaWriter interface {
-	Write(*ExecCtx, *batch.Batch) error
+	Write(*ExecCtx, *perfcounter.CounterSet, *batch.Batch) error
 	Close()
 }
 
