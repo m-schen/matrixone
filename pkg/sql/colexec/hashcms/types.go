@@ -31,10 +31,12 @@ import (
 // 对外提供以下能力：
 // 1. 提供 Probe() 能力，
 //  优先探测部分1，不存在的数据再探测数据2. 需要尽量做优化，对一次探测来说，需要减少IO次数。
+//	可能需要对外输出 read io 大小。
 //
 // 2. 提供 PutBatch() 能力，
 //  在内存足够的情况下更新部分1，
 //  在内存不够的情况下计算哈希列，然后spill. spill的时候根据一个基础的key值进行分块，暂时定为spill为16个部分。
+//	可能需要对外输出 write io 大小。
 //
 // 3. 提供 Close() 能力，
 //  对哈希表所有数据进行清除。
@@ -110,21 +112,22 @@ func (sh *SpilledHashTable) generateUniqueSpillPath() string {
 	return fmt.Sprintf(sh.formatTemplate, len(sh.blocks))
 }
 
-func (sh *SpilledHashTable) writeBatchToFileService(ctx context.Context, data *batch.Batch) error {
+func (sh *SpilledHashTable) writeBatchToFileService(ctx context.Context, data *batch.Batch) (int64, error) {
 	// step 1： generate the IO data for writing.
 	filePath := sh.generateUniqueSpillPath()
 	entry, err := getIOEntryToWriteBatch(data)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	IOdata := fileservice.IOVector{
 		FilePath: filePath,
 		Entries:  []fileservice.IOEntry{entry},
 	}
+	writeSize := int64(len(IOdata.Entries[0].Data))
 
 	// step 2: write data to file service.
 	if err = sh.fileSrv.Write(ctx, IOdata); err != nil {
-		return err
+		return 0, err
 	}
 
 	// step 3: update the block list.
@@ -134,7 +137,7 @@ func (sh *SpilledHashTable) writeBatchToFileService(ctx context.Context, data *b
 		rowCount: data.RowCount(),
 	}
 	sh.blocks = append(sh.blocks, info)
-	return nil
+	return writeSize, nil
 }
 
 func (sh *SpilledHashTable) removeBatchFromFileService(filePath string) {
@@ -142,7 +145,7 @@ func (sh *SpilledHashTable) removeBatchFromFileService(filePath string) {
 	_ = sh.fileSrv.Delete(context.TODO(), filePath)
 }
 
-func (sh *SpilledHashTable) readBatchFromFileService(ctx context.Context, mp *mpool.MPool, filePath string) (*batch.Batch, error) {
+func (sh *SpilledHashTable) readBatchFromFileService(ctx context.Context, mp *mpool.MPool, filePath string) (*batch.Batch, int64, error) {
 	// step 1: generate the IO vector for storing data.
 	entry := getIOEntryToReadBatch()
 	IOdata := fileservice.IOVector{
@@ -152,13 +155,14 @@ func (sh *SpilledHashTable) readBatchFromFileService(ctx context.Context, mp *mp
 
 	// step 2: read data from file service.
 	if err := sh.fileSrv.Read(ctx, &IOdata); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// step 3: unmarshal.
 	bat := batch.NewOffHeapEmpty()
+	readSize := int64(len(IOdata.Entries[0].Data))
 	if err := bat.UnmarshalBinaryWithAnyMp(IOdata.Entries[0].Data, mp); err != nil {
-		return nil, err
+		return nil, readSize, err
 	}
-	return bat, nil
+	return bat, readSize, nil
 }
