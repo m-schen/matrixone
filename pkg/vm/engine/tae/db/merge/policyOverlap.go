@@ -82,17 +82,16 @@ func (m *objOverlapPolicy) revise(cpu, mem int64, config *BasicPolicyConfig) []r
 		m.overlappingObjsSet = m.overlappingObjsSet[:0]
 
 		objs, taskHostKind := m.reviseLeveledObjs(i)
-		objs = controlMem(objs, mem)
-
-		if len(objs) > 1 {
+		if ok, eSize := controlMem(objs, mem); ok && len(objs) > 1 {
 			reviseResults[i] = reviseResult{slices.Clone(objs), taskHostKind}
+			mem -= eSize
 		}
 	}
 	return reviseResults
 }
 
-func (m *objOverlapPolicy) reviseLeveledObjs(i int) ([]*catalog.ObjectEntry, TaskHostKind) {
-	slices.SortFunc(m.leveledObjects[i], func(a, b *catalog.ObjectEntry) int {
+func (m *objOverlapPolicy) reviseLeveledObjs(level int) ([]*catalog.ObjectEntry, TaskHostKind) {
+	slices.SortFunc(m.leveledObjects[level], func(a, b *catalog.ObjectEntry) int {
 		zmA := a.SortKeyZoneMap()
 		zmB := b.SortKeyZoneMap()
 		if c := zmA.CompareMin(zmB); c != 0 {
@@ -101,7 +100,7 @@ func (m *objOverlapPolicy) reviseLeveledObjs(i int) ([]*catalog.ObjectEntry, Tas
 		return zmA.CompareMax(zmB)
 	})
 	set := entrySet{entries: make([]*catalog.ObjectEntry, 0), maxValue: []byte{}}
-	for _, obj := range m.leveledObjects[i] {
+	for _, obj := range m.leveledObjects[level] {
 		if len(set.entries) == 0 {
 			set.add(obj)
 			continue
@@ -144,6 +143,11 @@ func (m *objOverlapPolicy) reviseLeveledObjs(i int) ([]*catalog.ObjectEntry, Tas
 	if len(objs) < 2 {
 		return nil, TaskHostDN
 	}
+
+	if level < 2 && len(objs) > levels[3] {
+		objs = objs[:levels[3]]
+	}
+
 	return objs, TaskHostDN
 }
 
