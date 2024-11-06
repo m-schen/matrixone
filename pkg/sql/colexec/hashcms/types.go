@@ -16,12 +16,8 @@ package hashcms
 
 import (
 	"context"
-	"fmt"
 	"github.com/matrixorigin/matrixone/pkg/common/mpool"
 	"github.com/matrixorigin/matrixone/pkg/container/batch"
-	"github.com/matrixorigin/matrixone/pkg/fileservice"
-	"sync"
-	"time"
 )
 
 // 哈希表 应该包含以下2部分
@@ -41,6 +37,9 @@ import (
 // 3. 提供 Close() 能力，
 //  对哈希表所有数据进行清除。
 //
+// 4. 提供 AnySpill() 方法
+//	帮助	Join 算子判断哈希表是否有发生spill，如果否，可以直接执行原先的Join流程。
+//
 // 对内提供以下能力：
 // 1. writeBatchToFileService : 生成唯一的文件名并落盘, 同时更新部分2。
 // 2. removeBatchFromFileService : 根据文件名删除磁盘上的文件。
@@ -49,6 +48,10 @@ import (
 // 5. buildHashMapByIndexes : 根据index list读取并生成哈希表, 这里需要尽量做优化，包括预分配，批处理等。
 
 type HashPro struct {
+	mp *mpool.MPool
+
+	hasSpilledPart bool
+
 	// 哈希表的基本信息，
 	// 1. 帮助我们更快地构建哈希表。
 	// 2. 帮助我们确定是要使用 int hash map 还是 str hash map.
@@ -62,107 +65,23 @@ type HashPro struct {
 	inDisk SpilledHashTable
 }
 
-// MemoryHashTable is the first part of HashPro, it is the basic hashtable always save in the memory.
-type MemoryHashTable struct {
+func (hp *HashPro) Probe(ctx context.Context) (probeSucceed []bool, readIO int64, err error) {
+	return nil, 0, nil
 }
 
-// SpilledHashTable is the second part of HashPro, it records spilled block information,
-// and support the ability to rebuild hashtable.
-// but should be careful, there will be more than 1 user using this part.
-// so we should set a max-using-memory limitation for rebuild hashtable at a same time.
-type SpilledHashTable struct {
-	// fileSrv is the file service used to write / read / delete.
-	fileSrv ReadWriteImplementer
-
-	// each the probe phase, the consumer of this hash table, should do lock once it want to use the hash table.
-	//
-	// use hash table to probe :
-	//  1. get the lock.
-	//  2. check if wanted hash table was `InMemory`, and increase the reference. if it was not built, try to build it. (once memory is not enough, unlock and back to step 1.)
-	//  3. decrease the reference, if reference == 0, reset the memory and flag this hash table to `InDisk`.
-	probeLock sync.Mutex
-
-	memLimitation int64
-	memSizeBeUsed int64
-
-	// unique path item.
-	// format: sht_pointerPatch_Time_blockIndex.
-	formatTemplate string
-
-	// origin data.
-	blocks []spilledBatchInfo
+func (hp *HashPro) PutBatch(
+	ctx context.Context,
+	data *batch.Batch) (writeIO int64, err error) {
+	return 0, nil
 }
 
-// spilledBatchInfo is the information about spilled block.
-type spilledBatchInfo struct {
-	filePath string
-
-	// size and rowCount records the information about spilled file.
-	// they're helpful for us to build the hashmap.
-	size     int64
-	rowCount int
+func (hp *HashPro) Close() {
+	// clean part 1.
+	hp.inMemory.close(hp.mp)
+	// clean part 2.
+	hp.inDisk.close()
 }
 
-func (sh *SpilledHashTable) initFormatTemplate() {
-	sh.formatTemplate = fmt.Sprintf("sht_%p_%s", sh, time.Now().String()) + "_%d"
-}
-
-// generateUniqueSpillPath generate an unique spill path.
-func (sh *SpilledHashTable) generateUniqueSpillPath() string {
-	return fmt.Sprintf(sh.formatTemplate, len(sh.blocks))
-}
-
-func (sh *SpilledHashTable) writeBatchToFileService(ctx context.Context, data *batch.Batch) (int64, error) {
-	// step 1： generate the IO data for writing.
-	filePath := sh.generateUniqueSpillPath()
-	entry, err := getIOEntryToWriteBatch(data)
-	if err != nil {
-		return 0, err
-	}
-	IOdata := fileservice.IOVector{
-		FilePath: filePath,
-		Entries:  []fileservice.IOEntry{entry},
-	}
-	writeSize := int64(len(IOdata.Entries[0].Data))
-
-	// step 2: write data to file service.
-	if err = sh.fileSrv.Write(ctx, IOdata); err != nil {
-		return 0, err
-	}
-
-	// step 3: update the block list.
-	info := spilledBatchInfo{
-		filePath: filePath,
-		size:     int64(data.Allocated()),
-		rowCount: data.RowCount(),
-	}
-	sh.blocks = append(sh.blocks, info)
-	return writeSize, nil
-}
-
-func (sh *SpilledHashTable) removeBatchFromFileService(filePath string) {
-	// file path will be always correct.
-	_ = sh.fileSrv.Delete(context.TODO(), filePath)
-}
-
-func (sh *SpilledHashTable) readBatchFromFileService(ctx context.Context, mp *mpool.MPool, filePath string) (*batch.Batch, int64, error) {
-	// step 1: generate the IO vector for storing data.
-	entry := getIOEntryToReadBatch()
-	IOdata := fileservice.IOVector{
-		FilePath: filePath,
-		Entries:  []fileservice.IOEntry{entry},
-	}
-
-	// step 2: read data from file service.
-	if err := sh.fileSrv.Read(ctx, &IOdata); err != nil {
-		return nil, 0, err
-	}
-
-	// step 3: unmarshal.
-	bat := batch.NewOffHeapEmpty()
-	readSize := int64(len(IOdata.Entries[0].Data))
-	if err := bat.UnmarshalBinaryWithAnyMp(IOdata.Entries[0].Data, mp); err != nil {
-		return nil, readSize, err
-	}
-	return bat, readSize, nil
+func (hp *HashPro) AnySpill() bool {
+	return hp.hasSpilledPart
 }
